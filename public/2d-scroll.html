@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>2Dスクロールアクションゲーム - 改善版</title>
+  <style>
+    /* 余白・スクロールバーをなくし、キャンバスを中央配置 */
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <!-- ゲーム用キャンバス（800×600） -->
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+  <script>
+    /**************************************
+     * キー入力の管理
+     **************************************/
+    const keys = {};
+    window.addEventListener('keydown', e => {
+      keys[e.code] = true;
+    });
+    window.addEventListener('keyup', e => {
+      keys[e.code] = false;
+      if(e.code === "Space") {
+        player.spaceDown = false;
+      }
+    });
+
+    /**************************************
+     * キャンバス・物理設定
+     **************************************/
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const GRAVITY = 0.6;
+    // ※ ステージ1用の基準値（以降は groundProfile により決まる）
+    const GROUND_HEIGHT = 50;
+
+    /**************************************
+     * グローバル変数（死亡エフェクト、プロジェクタイル、ステージクリア）
+     **************************************/
+    let isPlayerDead = false;
+    let deathTimer = 0;
+    let explosionParticles = [];
+    let projectiles = [];
+    let stageClear = false;
+    let stageClearTimer = 0;
+
+    /**************************************
+     * 背景テクスチャの生成（木をひとつだけ配置）
+     **************************************/
+    // オフスクリーンキャンバス：横300px、縦はキャンバス高さ
+    const bgCanvas = document.createElement('canvas');
+    bgCanvas.width = 300;
+    bgCanvas.height = canvas.height;
+    const bgCtx = bgCanvas.getContext('2d');
+    // 上部は何も描画せず、下部（地平線付近）に木を描く
+    const groundLevel = 550;  // 例として
+    const trunkWidth = 20, trunkHeight = 80;
+    const trunkX = (bgCanvas.width - trunkWidth) / 2;
+    const trunkY = groundLevel - trunkHeight;
+    bgCtx.fillStyle = "brown";
+    bgCtx.fillRect(trunkX, trunkY, trunkWidth, trunkHeight);
+    bgCtx.fillStyle = "green";
+    bgCtx.beginPath();
+    bgCtx.arc(bgCanvas.width/2, trunkY, 50, 0, Math.PI*2);
+    bgCtx.fill();
+    const bgPattern = ctx.createPattern(bgCanvas, "repeat-x");
+
+    /**************************************
+     * ステージ定義
+     * 各ステージは mapWidth、敵・トラップ配置、プレイヤー開始位置に加え、
+     * groundProfile（地形プロファイル：水平なセグメント＋垂直変化部分）を持つ。
+     * 例として、ステージ2では、x=1000で高さが550→500、また x=2300～2500 に落とし穴（足場なし）を設定。
+     **************************************/
+    const stages = [
+      {
+        stageNumber: 1,
+        mapWidth: 4000,
+        groundProfile: [
+          { x: 0, y: 550, solid: true },
+          { x: 4000, y: 550, solid: true }
+        ],
+        enemies: [
+          { x: 500, width: 40, height: 40, type: "walker", dx: 2, initialX: 500 },
+          { x: 1200, width: 40, height: 40, type: "jumper", jumpCooldown: 90, jumpTimer: 90, dy: 0, grounded: true },
+          { x: 2800, width: 40, height: 40, type: "ranged", shootTimer: 120 }
+        ],
+        traps: [
+          { x: 800, width: 40, height: 30 },
+          { x: 1500, width: 40, height: 30 },
+          { x: 3200, width: 40, height: 30 }
+        ],
+        playerStart: { x: 50 }
+      },
+      {
+        stageNumber: 2,
+        mapWidth: 5000,
+        groundProfile: [
+          { x: 0, y: 550, solid: true },
+          { x: 1000, y: 550, solid: true },
+          { x: 1000, y: 500, solid: true },
+          { x: 2000, y: 500, solid: true },
+          { x: 2300, y: 500, solid: true },
+          { x: 2300, y: 700, solid: false },  // 落とし穴：幅200px（2300～2500）
+          { x: 2500, y: 700, solid: false },
+          { x: 2500, y: 500, solid: true },
+          { x: 5000, y: 500, solid: true }
+        ],
+        enemies: [
+          { x: 600, width: 40, height: 40, type: "walker", dx: 2, initialX: 600 },
+          { x: 1400, width: 40, height: 40, type: "jumper", jumpCooldown: 90, jumpTimer: 90, dy: 0, grounded: true },
+          { x: 2000, width: 40, height: 40, type: "ranged", shootTimer: 120 },
+          { x: 3500, width: 40, height: 40, type: "walker", dx: 2, initialX: 3500 }
+        ],
+        traps: [
+          { x: 1000, width: 40, height: 30 },
+          { x: 1800, width: 40, height: 30 },
+          { x: 2700, width: 40, height: 30 },
+          { x: 4200, width: 40, height: 30 }
+        ],
+        playerStart: { x: 50 }
+      },
+      // ステージ3～5も同様に段差を入れた groundProfile（例示）で定義
+      {
+        stageNumber: 3,
+        mapWidth: 6000,
+        groundProfile: [
+          { x: 0, y: 550, solid: true },
+          { x: 800, y: 550, solid: true },
+          { x: 800, y: 500, solid: true },
+          { x: 1600, y: 500, solid: true },
+          { x: 1600, y: 550, solid: true },
+          { x: 2200, y: 550, solid: true },
+          { x: 2800, y: 550, solid: true },
+          { x: 2800, y: 700, solid: false },  // 落とし穴：幅200px
+          { x: 3000, y: 700, solid: false },
+          { x: 3000, y: 550, solid: true },
+          { x: 6000, y: 550, solid: true }
+        ],
+        enemies: [
+          { x: 700, width: 40, height: 40, type: "walker", dx: 2, initialX: 700 },
+          { x: 1300, width: 40, height: 40, type: "jumper", jumpCooldown: 90, jumpTimer: 90, dy: 0, grounded: true },
+          { x: 2100, width: 40, height: 40, type: "ranged", shootTimer: 120 },
+          { x: 2600, width: 40, height: 40, type: "walker", dx: 2, initialX: 2600 },
+          { x: 4000, width: 40, height: 40, type: "jumper", jumpCooldown: 90, jumpTimer: 90, dy: 0, grounded: true }
+        ],
+        traps: [
+          { x: 900,  width: 40, height: 30 },
+          { x: 1700, width: 40, height: 30 },
+          { x: 2500, width: 40, height: 30 },
+          { x: 3500, width: 40, height: 30 },
+          { x: 5000, width: 40, height: 30 }
+        ],
+        playerStart: { x: 50 }
+      },
+      {
+        stageNumber: 4,
+        mapWidth: 7000,
+        groundProfile: [
+          { x: 0, y: 550, solid: true },
+          { x: 1000, y: 550, solid: true },
+          { x: 1000, y: 500, solid: true },
+          { x: 1800, y: 500, solid: true },
+          { x: 1800, y: 550, solid: true },
+          { x: 2500, y: 550, solid: true },
+          { x: 3000, y: 550, solid: true },
+          { x: 3000, y: 700, solid: false },  // 落とし穴：幅200px
+          { x: 3200, y: 700, solid: false },
+          { x: 3200, y: 550, solid: true },
+          { x: 5500, y: 550, solid: true },
+          { x: 7000, y: 550, solid: true }
+        ],
+        enemies: [
+          { x: 800,  width: 40, height: 40, type: "walker", dx: 2, initialX: 800 },
+          { x: 1500, width: 40, height: 40, type: "jumper", jumpCooldown: 90, jumpTimer: 90, dy: 0, grounded: true },
+          { x: 2200, width: 40, height: 40, type: "ranged", shootTimer: 120 },
+          { x: 3000, width: 40, height: 40, type: "walker", dx: 2, initialX: 3000 },
+          { x: 4500, width: 40, height: 40, type: "jumper", jumpCooldown: 90, jumpTimer: 90, dy: 0, grounded: true }
+        ],
+        traps: [
+          { x: 1100, width: 40, height: 30 },
+          { x: 1900, width: 40, height: 30 },
+          { x: 2700, width: 40, height: 30 },
+          { x: 3700, width: 40, height: 30 },
+          { x: 6000, width: 40, height: 30 }
+        ],
+        playerStart: { x: 50 }
+      },
+      {
+        stageNumber: 5,
+        mapWidth: 8000,
+        groundProfile: [
+          { x: 0, y: 550, solid: true },
+          { x: 1200, y: 550, solid: true },
+          { x: 1200, y: 500, solid: true },
+          { x: 2200, y: 500, solid: true },
+          { x: 2200, y: 550, solid: true },
+          { x: 3000, y: 550, solid: true },
+          { x: 3000, y: 700, solid: false },  // 落とし穴：幅200px
+          { x: 3200, y: 700, solid: false },
+          { x: 3200, y: 550, solid: true },
+          { x: 5000, y: 550, solid: true },
+          { x: 5000, y: 500, solid: true },
+          { x: 6000, y: 500, solid: true },
+          { x: 6000, y: 550, solid: true },
+          { x: 8000, y: 550, solid: true }
+        ],
+        enemies: [
+          { x: 900,  width: 40, height: 40, type: "walker", dx: 2, initialX: 900 },
+          { x: 1600, width: 40, height: 40, type: "jumper", jumpCooldown: 90, jumpTimer: 90, dy: 0, grounded: true },
+          { x: 2300, width: 40, height: 40, type: "ranged", shootTimer: 120 },
+          { x: 3100, width: 40, height: 40, type: "walker", dx: 2, initialX: 3100 },
+          { x: 3700, width: 40, height: 40, type: "jumper", jumpCooldown: 90, jumpTimer: 90, dy: 0, grounded: true },
+          { x: 5000, width: 40, height: 40, type: "ranged", shootTimer: 120 }
+        ],
+        traps: [
+          { x: 1200, width: 40, height: 30 },
+          { x: 2000, width: 40, height: 30 },
+          { x: 2800, width: 40, height: 30 },
+          { x: 3600, width: 40, height: 30 },
+          { x: 4500, width: 40, height: 30 },
+          { x: 7000, width: 40, height: 30 }
+        ],
+        playerStart: { x: 50 }
+      }
+    ];
+
+    let currentStageIndex = 0;
+    let currentStage = stages[currentStageIndex];
+
+    /**************************************
+     * 地形取得関数 (水平セグメント)
+     **************************************/
+    function getGround(x) {
+      const profile = currentStage.groundProfile;
+      if(x < profile[0].x) return { y: profile[0].y, solid: profile[0].solid };
+      for(let i = 0; i < profile.length - 1; i++) {
+        if(x >= profile[i].x && x < profile[i+1].x) {
+          return { y: profile[i].y, solid: profile[i].solid };
+        }
+      }
+      return { y: profile[profile.length-1].y, solid: profile[profile.length-1].solid };
+    }
+
+    /**************************************
+     * loadStage() : ステージ切替時、各オブジェクトの y 座標を groundProfile に合わせて再設定
+     **************************************/
+    function loadStage(index) {
+      currentStage = stages[index];
+      // プレイヤー
+      player.x = currentStage.playerStart.x;
+      let g = getGround(player.x + player.width/2);
+      player.y = g.y - player.height;
+      player.dx = 0;
+      player.dy = 0;
+      player.grounded = false;
+      player.jumpCount = 0;
+      player.spaceDown = false;
+      // 敵
+      currentStage.enemies.forEach(enemy => {
+        let ge = getGround(enemy.x + enemy.width/2);
+        enemy.y = ge.y - enemy.height;
+      });
+      // トラップ
+      currentStage.traps.forEach(trap => {
+        let gt = getGround(trap.x + trap.width/2);
+        trap.y = gt.y - trap.height;
+      });
+      projectiles = [];
+      stageClear = false;
+      stageClearTimer = 0;
+    }
+
+    /**************************************
+     * drawGround() : groundProfile に沿って地面を描画（多角形）
+     **************************************/
+    function drawGround() {
+      ctx.beginPath();
+      ctx.moveTo(-cameraX, canvas.height);
+      currentStage.groundProfile.forEach(pt => {
+        ctx.lineTo(pt.x - cameraX, pt.y);
+      });
+      ctx.lineTo(currentStage.mapWidth - cameraX, canvas.height);
+      ctx.closePath();
+      ctx.fillStyle = "#654321";
+      ctx.fill();
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    /**************************************
+     * プレイヤー定義 (yは loadStage で再設定)
+     **************************************/
+    const player = {
+      x: currentStage.playerStart.x,
+      y: 0,
+      width: 30,
+      height: 50,
+      dx: 0,
+      dy: 0,
+      speed: 5,
+      jumpForce: 15,
+      grounded: false,
+      jumpCount: 0,
+      spaceDown: false
+    };
+
+    let cameraX = 0;
+
+    /**************************************
+     * 敵の更新処理（壁衝突判定を追加）
+     **************************************/
+    function updateEnemies() {
+      currentStage.enemies.forEach(enemy => {
+        if(enemy.type === "walker") {
+          // もし地面上にいるなら、移動先の ground を調べ、上昇する段差なら反転
+          if(enemy.grounded) {
+            let centerX = enemy.x + enemy.width/2;
+            let currentG = getGround(centerX);
+            let nextCenter = centerX + enemy.dx;
+            let nextG = getGround(nextCenter);
+            if(nextG.y < currentG.y) { // 次が高い＝壁とみなす
+              enemy.dx = -enemy.dx;
+            }
+          }
+          enemy.x += enemy.dx;
+          // 既定の往復範囲による反転処理
+          if(enemy.x < enemy.initialX - 200 || enemy.x > enemy.initialX + 200) {
+            enemy.dx = -enemy.dx;
+          }
+        }
+        else if(enemy.type === "jumper") {
+          enemy.jumpTimer--;
+          if(enemy.grounded && enemy.jumpTimer <= 0) {
+            enemy.dy = -10;
+            enemy.grounded = false;
+            enemy.jumpTimer = enemy.jumpCooldown;
+          }
+          enemy.dy += GRAVITY;
+          enemy.y += enemy.dy;
+          let ge = getGround(enemy.x + enemy.width/2);
+          if(ge.solid && enemy.y > ge.y - enemy.height) {
+            enemy.y = ge.y - enemy.height;
+            enemy.dy = 0;
+            enemy.grounded = true;
+          }
+        }
+        else if(enemy.type === "ranged") {
+          enemy.shootTimer--;
+          if(enemy.shootTimer <= 0) {
+            let ex = enemy.x + enemy.width/2;
+            let ey = enemy.y + enemy.height/2;
+            let px = player.x + player.width/2;
+            let py = player.y + player.height/2;
+            let angle = Math.atan2(py - ey, px - ex);
+            let speed = 5;
+            projectiles.push({
+              x: ex,
+              y: ey,
+              dx: Math.cos(angle)*speed,
+              dy: Math.sin(angle)*speed,
+              radius: 5
+            });
+            enemy.shootTimer = 120;
+          }
+        }
+      });
+    }
+
+    /**************************************
+     * プロジェクタイル更新
+     **************************************/
+    function updateProjectiles() {
+      for(let i = projectiles.length - 1; i >= 0; i--) {
+        let proj = projectiles[i];
+        proj.x += proj.dx;
+        proj.y += proj.dy;
+        if(proj.x < 0 || proj.x > currentStage.mapWidth || proj.y < 0 || proj.y > canvas.height) {
+          projectiles.splice(i, 1);
+          continue;
+        }
+        if(circleRectCollision(proj, player)) {
+          die();
+          projectiles.splice(i, 1);
+        }
+      }
+    }
+
+    function circleRectCollision(circle, rect) {
+      let distX = Math.abs(circle.x - (rect.x + rect.width/2));
+      let distY = Math.abs(circle.y - (rect.y + rect.height/2));
+      if(distX > (rect.width/2 + circle.radius)) return false;
+      if(distY > (rect.height/2 + circle.radius)) return false;
+      if(distX <= (rect.width/2)) return true;
+      if(distY <= (rect.height/2)) return true;
+      let dx = distX - rect.width/2;
+      let dy = distY - rect.height/2;
+      return (dx*dx + dy*dy <= circle.radius*circle.radius);
+    }
+
+    /**************************************
+     * 爆発エフェクト更新
+     **************************************/
+    function updateExplosionParticles() {
+      for(let i = explosionParticles.length - 1; i >= 0; i--) {
+        let p = explosionParticles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= 0.02;
+        if(p.alpha <= 0) explosionParticles.splice(i, 1);
+      }
+    }
+
+    /**************************************
+     * 死亡処理（爆発エフェクト）
+     **************************************/
+    function die() {
+      if(!isPlayerDead) {
+        isPlayerDead = true;
+        deathTimer = 60;
+        explosionParticles = [];
+        let centerX = player.x + player.width/2;
+        let centerY = player.y + player.height/2;
+        for(let i = 0; i < 30; i++){
+          let angle = Math.random() * Math.PI * 2;
+          let speed = Math.random()*5 + 2;
+          explosionParticles.push({
+            x: centerX,
+            y: centerY,
+            vx: Math.cos(angle)*speed,
+            vy: Math.sin(angle)*speed,
+            alpha: 1,
+            radius: Math.random()*3+2
+          });
+        }
+      }
+    }
+
+    /**************************************
+     * draw() : 描画処理（背景は薄い水色）
+     **************************************/
+    function draw() {
+      // 背景を薄い水色で塗りつぶす
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#f0f8ff";  // AliceBlue に近い色
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // 背景テクスチャ（パララックス効果）
+      ctx.save();
+      ctx.translate(-cameraX * 0.5, 0);
+      ctx.fillStyle = bgPattern;
+      ctx.fillRect(0, 0, canvas.width + cameraX * 0.5, canvas.height);
+      ctx.restore();
+      
+      // 地面描画
+      drawGround();
+      
+      // 敵描画
+      currentStage.enemies.forEach(enemy => {
+        if(enemy.type === "walker") {
+          ctx.fillStyle = "red";
+        } else if(enemy.type === "jumper") {
+          ctx.fillStyle = "purple";
+        } else if(enemy.type === "ranged") {
+          ctx.fillStyle = "brown";
+        } else {
+          ctx.fillStyle = "red";
+        }
+        ctx.fillRect(enemy.x - cameraX, enemy.y, enemy.width, enemy.height);
+      });
+      
+      // トラップ描画
+      currentStage.traps.forEach(trap => {
+        ctx.fillStyle = "yellow";
+        ctx.fillRect(trap.x - cameraX, trap.y, trap.width, trap.height);
+      });
+      
+      // プロジェクタイル描画
+      ctx.fillStyle = "black";
+      projectiles.forEach(proj => {
+        ctx.beginPath();
+        ctx.arc(proj.x - cameraX, proj.y, proj.radius, 0, Math.PI*2);
+        ctx.fill();
+      });
+      
+      // プレイヤーまたは死亡時の爆発エフェクト描画
+      if(!isPlayerDead) {
+        ctx.fillStyle = "blue";
+        ctx.fillRect(player.x - cameraX, player.y, player.width, player.height);
+      } else {
+        explosionParticles.forEach(p => {
+          ctx.fillStyle = "rgba(255, 165, 0, " + p.alpha + ")";
+          ctx.beginPath();
+          ctx.arc(p.x - cameraX, p.y, p.radius, 0, Math.PI*2);
+          ctx.fill();
+        });
+      }
+      
+      // ステージクリア時メッセージ
+      if(stageClear) {
+        ctx.fillStyle = "black";
+        ctx.font = "40px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Congratulations!", canvas.width/2, canvas.height/2);
+      }
+      
+      // ステージ番号表示
+      ctx.fillStyle = "black";
+      ctx.font = "20px sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText("Stage: " + currentStage.stageNumber, 10, 30);
+    }
+
+    /**************************************
+     * ゲームループ
+     **************************************/
+    function update() {
+      // プレイヤー死亡中は爆発エフェクトのみ更新
+      if(isPlayerDead) {
+        updateExplosionParticles();
+        deathTimer--;
+        if(deathTimer <= 0) {
+          loadStage(currentStageIndex);
+          isPlayerDead = false;
+        }
+        draw();
+        requestAnimationFrame(update);
+        return;
+      }
+      
+      // プレイヤー入力処理
+      if(keys["ArrowRight"]) {
+        player.dx = player.speed;
+      } else if(keys["ArrowLeft"]) {
+        player.dx = -player.speed;
+      } else {
+        player.dx = 0;
+      }
+      if(keys["Space"] && !player.spaceDown) {
+        if(player.grounded || player.jumpCount < 2) {
+          player.dy = -player.jumpForce;
+          player.grounded = false;
+          player.jumpCount++;
+        }
+        player.spaceDown = true;
+      }
+      
+      // 【プレイヤーの壁衝突判定】
+      if(player.grounded) {
+        let centerX = player.x + player.width/2;
+        let currentG = getGround(centerX);
+        let nextCenter = centerX + player.dx;
+        let nextG = getGround(nextCenter);
+        // もし前方の ground が高い（y 値が小さい＝上にある）なら、横移動をキャンセル
+        if(nextG.y < currentG.y) {
+          player.dx = 0;
+        }
+      }
+      
+      // プレイヤー物理更新
+      player.dy += GRAVITY;
+      player.x += player.dx;
+      player.y += player.dy;
+      
+      // 地形との衝突判定（プレイヤー中心の x 座標）
+      let groundInfo = getGround(player.x + player.width/2);
+      if(groundInfo.solid) {
+        if(player.y > groundInfo.y - player.height) {
+          player.y = groundInfo.y - player.height;
+          player.dy = 0;
+          player.grounded = true;
+          player.jumpCount = 0;
+        }
+      } else {
+        if(player.y > canvas.height + 100) {
+          die();
+          requestAnimationFrame(update);
+          return;
+        }
+      }
+      if(player.x < 0) player.x = 0;
+      
+      // ステージクリア判定
+      if(player.x > currentStage.mapWidth - player.width && !stageClear) {
+        stageClear = true;
+        stageClearTimer = 120;
+      }
+      if(stageClear) {
+        stageClearTimer--;
+        if(stageClearTimer <= 0) {
+          currentStageIndex++;
+          if(currentStageIndex >= stages.length) {
+            alert("ゲームクリア！おめでとうございます！");
+            currentStageIndex = 0;
+          }
+          loadStage(currentStageIndex);
+        }
+        draw();
+        requestAnimationFrame(update);
+        return;
+      }
+      
+      // カメラ更新（プレイヤー追従）
+      cameraX = player.x - canvas.width/2;
+      if(cameraX < 0) cameraX = 0;
+      if(cameraX > currentStage.mapWidth - canvas.width) {
+        cameraX = currentStage.mapWidth - canvas.width;
+      }
+      
+      updateEnemies();
+      updateProjectiles();
+      
+      // 【敵（walker）の壁衝突判定】
+      currentStage.enemies.forEach(enemy => {
+        if(enemy.type === "walker" && enemy.grounded) {
+          let centerX = enemy.x + enemy.width/2;
+          let currentG = getGround(centerX);
+          let nextCenter = centerX + enemy.dx;
+          let nextG = getGround(nextCenter);
+          if(nextG.y < currentG.y) { // 壁にぶつかったとみなす
+            enemy.dx = -enemy.dx;  // 反転
+          }
+        }
+      });
+      
+      // 敵・トラップとの衝突判定
+      for(let enemy of currentStage.enemies) {
+        if(isColliding(player, enemy)) {
+          die();
+          requestAnimationFrame(update);
+          return;
+        }
+      }
+      for(let trap of currentStage.traps) {
+        if(isColliding(player, trap)) {
+          die();
+          requestAnimationFrame(update);
+          return;
+        }
+      }
+      
+      draw();
+      requestAnimationFrame(update);
+    }
+    
+    function isColliding(a, b) {
+      return a.x < b.x + b.width &&
+             a.x + a.width > b.x &&
+             a.y < b.y + b.height &&
+             a.y + a.height > b.y;
+    }
+    
+    /**************************************
+     * ゲーム開始
+     **************************************/
+    loadStage(currentStageIndex);
+    update();
+  </script>
+</body>
+</html>
