@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Browser Games</title>
+    <style>
+        body {
+            color: #333333;
+            display: flex;
+            flex-flow: column nowrap;
+            align-items: center;
+        }
+        .site-description {
+        }
+        .collection-container {
+            display: flex;
+            flex-flow: row wrap;
+            row-gap: 14px;
+            column-gap: 7px;
+        }
+        .game-box {
+            border: solid 1px #999999;
+            background-color: #f8f8f8;
+            border-radius: 6px;
+            padding: 7px;
+            width: 280px;
+        }
+        .game-box .description {
+            font-size: 0.8125rem;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI Browser Games</h1>
+    <p class="site-description">完全ノーコーディングで、生成AIにブラウザゲームを作らせる試み</p>
+    <div class="collection-container">
+        <div class="game-box">
+            <a class="title" href="./block-puzzle.html">同色ブロック削除パズル</a>
+            <div class="description">
+                同じ色が2つ以上並んだブロックをクリックすると削除されます。
+                綺麗にすべてのブロックを削除しましょう。
+                (OpenAI o3-mini)
+            </div>
+        </div>
+        <div class="game-box">
+            <a class="title" href="./2d-scroll.html">2Dスクロール</a>
+            <div class="description">
+                左右キーで移動、スペースキーでジャンプ。
+                敵や障害物を避けてゴールを目指しましょう。
+                (OpenAI o3-mini)
+            </div>
+        </div>
+        <div class="game-box">
+            <a class="title" href="./space-shooting.html">宇宙シューティング</a>
+            <div class="description">
+                方向キーで移動、スペースキーで攻撃。
+                敵を倒して高スコアを目指しましょう。
+                (OpenAI o3-mini)
+            </div>
+        </div>
+    </div>
+</body>
+</html>
