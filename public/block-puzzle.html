@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Infinite Puzzle Game with Shake Effect</title>
+  <style>
+    body {
+      text-align: center;
+      background-color: #f0f0f0;
+      font-family: sans-serif;
+    }
+    canvas {
+      border: 1px solid #000;
+      background-color: #fff;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Infinite Puzzle Game with Shake Effect</h1>
+  <canvas id="gameCanvas" width="400" height="400"></canvas>
+  <p>Score: <span id="score">0</span></p>
+
+  <script>
+    // キャンバスと基本設定
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreDisplay = document.getElementById('score');
+
+    const ROWS = 10;
+    const COLS = 10;
+    const TILE_SIZE = 40;
+    const COLORS = ['red', 'green', 'blue', 'orange', 'purple'];
+
+    let grid = [];         // 各セルには色（文字列）または null を保持
+    let score = 0;
+    let isAnimating = false;  // エフェクト中（爆発、落下、シェイク）はクリックを無効化
+
+    // パーティクル用配列
+    let particles = [];
+
+    // 落下アニメーション用配列
+    let movingAnimations = [];
+    let animationStartTime = 0;  // 落下アニメーション開始時刻
+
+    // ------------------------------
+    // Particle クラス（爆発エフェクト用）
+    class Particle {
+      constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        // 速度は -2～2 のランダム値
+        this.vx = (Math.random() - 0.5) * 4;
+        this.vy = (Math.random() - 0.5) * 4;
+        this.life = 30 + Math.random() * 10;  // 生存フレーム数
+        this.color = color;
+        this.size = 4 + Math.random() * 3;
+      }
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life--;
+      }
+      draw(ctx) {
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // ------------------------------
+    // ブロック（セル）の描画
+    // テクスチャ感を出すため、上部が明るく下部が元色になるリニアグラデーションで描画します。
+    function drawBlock(x, y, color) {
+      let gradient = ctx.createLinearGradient(x, y, x, y + TILE_SIZE);
+      gradient.addColorStop(0, "white");
+      gradient.addColorStop(1, color);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+      ctx.strokeStyle = "black";
+      ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+    }
+
+    // ------------------------------
+    // グリッドの初期化：各セルにランダムな色を配置
+    function initGrid() {
+      grid = [];
+      for (let r = 0; r < ROWS; r++) {
+        let row = [];
+        for (let c = 0; c < COLS; c++) {
+          row.push(randomColor());
+        }
+        grid.push(row);
+      }
+    }
+
+    function randomColor() {
+      return COLORS[Math.floor(Math.random() * COLORS.length)];
+    }
+
+    // ------------------------------
+    // グリッド全体の描画（静止時）
+    function drawGrid() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (grid[r][c]) {
+            drawBlock(c * TILE_SIZE, r * TILE_SIZE, grid[r][c]);
+          }
+        }
+      }
+    }
+
+    // ------------------------------
+    // パーティクルの描画
+    function drawParticles() {
+      for (const p of particles) {
+        p.draw(ctx);
+      }
+    }
+
+    // メイン描画関数（爆発エフェクト中はパーティクルも描画）
+    function render() {
+      drawGrid();
+      if (particles.length > 0) {
+        drawParticles();
+      }
+    }
+
+    // ------------------------------
+    // クリック座標からグリッド上のセル位置を取得
+    function getTileAt(x, y) {
+      const col = Math.floor(x / TILE_SIZE);
+      const row = Math.floor(y / TILE_SIZE);
+      if (row >= 0 && row < ROWS && col >= 0 && col < COLS) {
+        return { row, col };
+      }
+      return null;
+    }
+
+    // ------------------------------
+    // フラッドフィル：クリックしたセルと同じ色の隣接セル群を再帰的に探索
+    function floodFill(row, col, color, visited) {
+      if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return [];
+      if (visited[row][col]) return [];
+      if (grid[row][col] !== color) return [];
+      visited[row][col] = true;
+      let cells = [[row, col]];
+      cells = cells.concat(floodFill(row - 1, col, color, visited));
+      cells = cells.concat(floodFill(row + 1, col, color, visited));
+      cells = cells.concat(floodFill(row, col - 1, color, visited));
+      cells = cells.concat(floodFill(row, col + 1, color, visited));
+      return cells;
+    }
+
+    // ------------------------------
+    // 対象セル群を grid から削除（null に設定）
+    function removeCells(cells) {
+      for (const cell of cells) {
+        const [r, c] = cell;
+        grid[r][c] = null;
+      }
+    }
+
+    // ------------------------------
+    // 重力処理：各列内でセルを下に詰める
+    function applyGravity() {
+      for (let c = 0; c < COLS; c++) {
+        let colCells = [];
+        for (let r = 0; r < ROWS; r++) {
+          if (grid[r][c] !== null) {
+            colCells.push(grid[r][c]);
+          }
+        }
+        for (let r = ROWS - 1; r >= 0; r--) {
+          if (colCells.length > 0) {
+            grid[r][c] = colCells.pop();
+          } else {
+            grid[r][c] = null;
+          }
+        }
+      }
+    }
+
+    // ------------------------------
+    // 列シフト：空の列を除去して左に詰める
+    function shiftColumns() {
+      let nonEmptyCols = [];
+      for (let c = 0; c < COLS; c++) {
+        let isEmpty = true;
+        for (let r = 0; r < ROWS; r++) {
+          if (grid[r][c] !== null) {
+            isEmpty = false;
+            break;
+          }
+        }
+        if (!isEmpty) nonEmptyCols.push(c);
+      }
+      let newGrid = Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
+      let newCol = 0;
+      for (let c of nonEmptyCols) {
+        for (let r = 0; r < ROWS; r++) {
+          newGrid[r][newCol] = grid[r][c];
+        }
+        newCol++;
+      }
+      grid = newGrid;
+    }
+
+    // ------------------------------
+    // 爆発エフェクトの開始
+    function startExplosion(cells, color, callback) {
+      // 各セル位置からパーティクルを発生
+      for (const cell of cells) {
+        const [r, c] = cell;
+        const centerX = c * TILE_SIZE + TILE_SIZE / 2;
+        const centerY = r * TILE_SIZE + TILE_SIZE / 2;
+        const numParticles = 5 + Math.floor(Math.random() * 4);
+        for (let i = 0; i < numParticles; i++) {
+          particles.push(new Particle(centerX, centerY, color));
+        }
+      }
+      const explosionDuration = 600; // ミリ秒
+      let startTime = null;
+      function animateExplosion(timestamp) {
+        if (!startTime) startTime = timestamp;
+        let elapsed = timestamp - startTime;
+        particles.forEach(p => p.update());
+        particles = particles.filter(p => p.life > 0);
+        render();
+        if (elapsed < explosionDuration || particles.length > 0) {
+          requestAnimationFrame(animateExplosion);
+        } else {
+          // エフェクト終了後にコールバック実行
+          callback();
+        }
+      }
+      requestAnimationFrame(animateExplosion);
+    }
+
+    // ------------------------------
+    // 落下（移動）エフェクトのアニメーション
+    function animateFalling(timestamp) {
+      let progress = (timestamp - animationStartTime) / 300; // 300ms で移動完了
+      if (progress > 1) progress = 1;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // 移動中の各ブロックを補間して描画
+      for (let anim of movingAnimations) {
+        let t = Math.min(1, (timestamp - animationStartTime) / anim.duration);
+        let x = anim.startX + (anim.endX - anim.startX) * t;
+        let y = anim.startY + (anim.endY - anim.startY) * t;
+        drawBlock(x, y, anim.color);
+      }
+      if (progress < 1) {
+        requestAnimationFrame(animateFalling);
+      } else {
+        // アニメーション終了後、最終状態の grid を再描画
+        movingAnimations = [];
+        isAnimating = false;
+        render();
+      }
+    }
+
+    // ------------------------------
+    // シェイクエフェクト：消えないブロックを軽く左右に振る
+    function shakeBlock(row, col, color) {
+      isAnimating = true;
+      const duration = 300; // 300ms
+      let startTime = null;
+      function animateShake(timestamp) {
+        if (!startTime) startTime = timestamp;
+        let t = (timestamp - startTime) / duration;
+        if (t > 1) t = 1;
+        // 振れ幅は徐々に減衰する（最大3pxの振れ）
+        const amplitude = 3;
+        // 10回振れるように（t*10*π）サイン波で左右に振動
+        let offset = amplitude * Math.sin(t * Math.PI * 10) * (1 - t);
+        // 描画
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // 全セルを通常描画。ただし、対象セルは x 座標に offset を加える
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            if (grid[r][c]) {
+              if (r === row && c === col) {
+                drawBlock(c * TILE_SIZE + offset, r * TILE_SIZE, color);
+              } else {
+                drawBlock(c * TILE_SIZE, r * TILE_SIZE, grid[r][c]);
+              }
+            }
+          }
+        }
+        if (t < 1) {
+          requestAnimationFrame(animateShake);
+        } else {
+          // シェイク終了後は通常描画に戻す
+          isAnimating = false;
+          render();
+        }
+      }
+      requestAnimationFrame(animateShake);
+    }
+
+    // ------------------------------
+    // クリックイベントの処理
+    canvas.addEventListener('click', function(event) {
+      if (isAnimating) return; // エフェクト中は操作無効
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const tile = getTileAt(x, y);
+      if (tile) {
+        const { row, col } = tile;
+        if (grid[row][col] === null) return;
+        let visited = Array.from({ length: ROWS }, () => new Array(COLS).fill(false));
+        const cells = floodFill(row, col, grid[row][col], visited);
+        // 2つ以上の連結があれば削除（エフェクト実行）
+        if (cells.length >= 2) {
+          isAnimating = true;
+          // 爆発エフェクト開始
+          startExplosion(cells, grid[row][col], () => {
+            // --- 落下アニメーションのために、削除前の各列のブロック位置を記録 ---
+            let oldPositionsByCol = [];
+            for (let c = 0; c < COLS; c++) {
+              let colArray = [];
+              for (let r = 0; r < ROWS; r++) {
+                if (grid[r][c] !== null) {
+                  colArray.push({ row: r, color: grid[r][c], x: c * TILE_SIZE, y: r * TILE_SIZE });
+                }
+              }
+              oldPositionsByCol.push(colArray);
+            }
+            // ブロック群削除
+            removeCells(cells);
+            score += cells.length;
+            scoreDisplay.textContent = score;
+            // 重力処理
+            applyGravity();
+            // 列シフトの前に、各列の状態（ブロックの数）を記録
+            let nonEmptyCols = [];
+            for (let c = 0; c < COLS; c++) {
+              let isEmpty = true;
+              for (let r = 0; r < ROWS; r++) {
+                if (grid[r][c] !== null) { isEmpty = false; break; }
+              }
+              if (!isEmpty) nonEmptyCols.push(c);
+            }
+            shiftColumns();
+            // --- 落下アニメーション用のデータ作成 ---
+            movingAnimations = [];
+            for (let j = 0; j < nonEmptyCols.length; j++) {
+              let oldCol = nonEmptyCols[j];
+              let colBlocks = oldPositionsByCol[oldCol];  // その列にあったブロック（上から順）
+              let count = colBlocks.length;
+              // 最終的な grid では、該当列 j の下側 count 行が埋まっています
+              for (let r = ROWS - count; r < ROWS; r++) {
+                if (grid[r][j] !== null) {
+                  let index = r - (ROWS - count);
+                  let oldBlock = colBlocks[index];
+                  movingAnimations.push({
+                    color: grid[r][j],
+                    startX: oldBlock.x,
+                    startY: oldBlock.y,
+                    endX: j * TILE_SIZE,
+                    endY: r * TILE_SIZE,
+                    duration: 300
+                  });
+                }
+              }
+            }
+            // 落下アニメーション開始
+            animationStartTime = performance.now();
+            requestAnimationFrame(animateFalling);
+          });
+        } else {
+          // 連結が1個の場合は削除されないので、シェイクエフェクトを実行
+          shakeBlock(row, col, grid[row][col]);
+        }
+      }
+    });
+
+    // ------------------------------
+    // まだ同色の隣接ブロックがあるかチェック
+    function hasMoves() {
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (grid[r][c] !== null) {
+            let color = grid[r][c];
+            if (c + 1 < COLS && grid[r][c + 1] === color) return true;
+            if (r + 1 < ROWS && grid[r + 1][c] === color) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    // ------------------------------
+    // ゲームリセット
+    function resetGame() {
+      score = 0;
+      scoreDisplay.textContent = score;
+      initGrid();
+      particles = [];
+      movingAnimations = [];
+      isAnimating = false;
+      render();
+    }
+
+    // ------------------------------
+    // 初期化
+    resetGame();
+  </script>
+</body>
+</html>
