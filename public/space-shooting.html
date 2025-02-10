@@ -2,45 +2,155 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>操作方法＆見た目調整付きシューティングゲーム</title>
+  <title>レスポンシブ対応シューティングゲーム</title>
   <style>
-    body {
-      background: #000;
+    html, body {
       margin: 0;
+      padding: 0;
       overflow: hidden;
-      color: white;
+      width: 100%;
+      height: 100%;
+      background: #000;
       font-family: Arial, sans-serif;
+      color: white;
     }
-    /* 操作方法の説明を画面左上に表示 */
+    /* 全体を包むコンテナ。画面全体を占有 */
+    #gameContainer {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    /* ゲーム画面（canvas）はコンテナ全体にフィット */
+    #gameCanvas {
+      display: block;
+      background: black;
+      width: 100%;
+      height: 100%;
+    }
+    /* 画面左上に操作説明 */
     #instructions {
       position: absolute;
       top: 10px;
       left: 10px;
-      z-index: 10;
+      z-index: 20;
       background: rgba(0, 0, 0, 0.5);
-      padding: 10px;
+      padding: 8px 10px;
       border: 1px solid white;
+      border-radius: 4px;
+      font-size: 14px;
     }
-    canvas {
-      display: block;
-      margin: 50px auto; /* 上部に余白を確保 */
-      border: 2px solid #fff;
+    /* 画面下部に配置するソフトキー（操作ボタン群） */
+    #controls {
+      position: absolute;
+      bottom: 10px;
+      left: 0;
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      padding: 0 10px;
+      z-index: 30;
+      pointer-events: none; /* コンテナ自体は透過、各ボタンは後で pointer-events: auto; */
+    }
+    /* D-pad（方向キー）のコンテナ */
+    #dpad {
+      position: relative;
+      width: 150px;
+      height: 150px;
+      pointer-events: auto;
+    }
+    .dpad-button {
+      position: absolute;
+      width: 50px;
+      height: 50px;
+      font-size: 24px;
+      background: rgba(255,255,255,0.2);
+      border: 2px solid white;
+      border-radius: 8px;
+      color: white;
+      outline: none;
+      pointer-events: auto;
+    }
+    #btn-up {
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    #btn-left {
+      top: 50%;
+      left: 0;
+      transform: translateY(-50%);
+    }
+    #btn-down {
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    #btn-right {
+      top: 50%;
+      right: 0;
+      transform: translateY(-50%);
+    }
+    /* シュートボタン */
+    #shoot-container {
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #btn-shoot {
+      width: 80px;
+      height: 80px;
+      font-size: 20px;
+      background: rgba(255,255,255,0.2);
+      border: 2px solid white;
+      border-radius: 50%;
+      color: white;
+      outline: none;
+      pointer-events: auto;
     }
   </style>
 </head>
 <body>
-  <!-- 操作方法の説明 -->
-  <div id="instructions">
-    <h3>操作方法</h3>
-    <p>← → : 移動</p>
-    <p>↑ ↓ : 移動</p>
-    <p>Space : 弾発射</p>
-    <p>アイテム取得で攻撃パターンが変化</p>
+  <!-- 全体コンテナ -->
+  <div id="gameContainer">
+    <!-- 操作説明 -->
+    <div id="instructions">
+      <h3 style="margin:0; font-size:16px;">操作方法</h3>
+      <p style="margin:4px 0;">← → ↑ ↓ : 移動</p>
+      <p style="margin:4px 0;">Space / Shoot : 弾発射</p>
+      <p style="margin:4px 0;">アイテム取得で攻撃パターン変化</p>
+      <p style="margin:4px 0;">リトライはゲームオーバー画面のボタン</p>
+    </div>
+    <!-- ゲーム画面 -->
+    <canvas id="gameCanvas"></canvas>
+    <!-- 画面下部のソフトキー -->
+    <div id="controls">
+      <!-- D-pad：左側 -->
+      <div id="dpad">
+        <button id="btn-up" class="dpad-button">↑</button>
+        <button id="btn-left" class="dpad-button">←</button>
+        <button id="btn-down" class="dpad-button">↓</button>
+        <button id="btn-right" class="dpad-button">→</button>
+      </div>
+      <!-- シュートボタン：右側 -->
+      <div id="shoot-container">
+        <button id="btn-shoot">Shoot</button>
+      </div>
+    </div>
   </div>
-  <canvas id="gameCanvas" width="400" height="600"></canvas>
+
   <script>
+    // キャンバスのリサイズ処理
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
+    function resizeGame() {
+      const container = document.getElementById("gameContainer");
+      // キャンバスの解像度をコンテナのサイズに合わせる
+      canvas.width = container.clientWidth;
+      canvas.height = container.clientHeight;
+    }
+    window.addEventListener("resize", resizeGame);
+    resizeGame();
 
     // ★ 背景用の星オブジェクト群 ★
     const numStars = 150;
@@ -77,7 +187,7 @@
       });
     }
 
-    // ゲーム状態
+    // ゲーム状態など（これまでのコードと同様）
     let gameOver = false;
     let score = 0;
     let spawnTimer = 0;
@@ -94,13 +204,10 @@
     let explosions = [];
 
     // ★ 攻撃パワーアップ関連 ★
-    // attackPower.type: "normal" / "triple" / "spread"
-    // attackPower.timer: 有効時間（フレーム数）
     let attackPower = { type: "normal", timer: 0 };
 
     // ★ パワーアップアイテム関連 ★
     let powerUps = [];
-    // アイテムの出現頻度を下げるため、出現タイマーの閾値を約500フレームに設定
     let spawnPowerUpTimer = 0;
 
     // プレイヤー
@@ -116,10 +223,37 @@
     let bullets = [];
     let enemies = [];
 
-    // キー入力管理
+    // キー入力管理（PC用）
     const keys = {};
     document.addEventListener("keydown", e => { keys[e.code] = true; });
     document.addEventListener("keyup", e => { keys[e.code] = false; });
+
+    // ★ スマホ用ソフトキーの操作（タッチ・マウス対応） ★
+    function addControlListeners(id, keyName) {
+      const btn = document.getElementById(id);
+      btn.addEventListener("touchstart", function(e) {
+        keys[keyName] = true;
+        e.preventDefault();
+      });
+      btn.addEventListener("touchend", function(e) {
+        keys[keyName] = false;
+        e.preventDefault();
+      });
+      btn.addEventListener("mousedown", function(e) {
+        keys[keyName] = true;
+      });
+      btn.addEventListener("mouseup", function(e) {
+        keys[keyName] = false;
+      });
+      btn.addEventListener("mouseleave", function(e) {
+        keys[keyName] = false;
+      });
+    }
+    addControlListeners("btn-up", "ArrowUp");
+    addControlListeners("btn-left", "ArrowLeft");
+    addControlListeners("btn-down", "ArrowDown");
+    addControlListeners("btn-right", "ArrowRight");
+    addControlListeners("btn-shoot", "Space");
 
     // 爆発エフェクト生成
     function createExplosion(x, y, color = "orange") {
@@ -132,7 +266,6 @@
         color: color
       });
     }
-
     // 派手なボス爆発エフェクト生成
     function createBossExplosion(x, y, width, height) {
       const colors = ["red", "orange", "yellow", "purple"];
@@ -143,8 +276,7 @@
         createExplosion(posX, posY, color);
       }
     }
-
-    // パワーアップアイテム生成
+    // パワーアップアイテム生成（丸く、球体風グラデーション）
     function spawnPowerUp() {
       const types = ["triple", "spread"];
       let type = types[Math.floor(Math.random() * types.length)];
@@ -163,25 +295,25 @@
       updateStars();
 
       // プレイヤー移動
-      if (keys['ArrowLeft'] && player.x > 0) {
+      if (keys["ArrowLeft"] && player.x > 0) {
         player.x -= player.speed;
       }
-      if (keys['ArrowRight'] && player.x < canvas.width - player.width) {
+      if (keys["ArrowRight"] && player.x < canvas.width - player.width) {
         player.x += player.speed;
       }
-      if (keys['ArrowUp'] && player.y > 0) {
+      if (keys["ArrowUp"] && player.y > 0) {
         player.y -= player.speed;
       }
-      if (keys['ArrowDown'] && player.y < canvas.height - player.height) {
+      if (keys["ArrowDown"] && player.y < canvas.height - player.height) {
         player.y += player.speed;
       }
 
       // プレイヤー弾発射
-      if (keys['Space'] && !shooting) {
+      if (keys["Space"] && !shooting) {
         shoot();
         shooting = true;
       }
-      if (!keys['Space']) {
+      if (!keys["Space"]) {
         shooting = false;
       }
 
@@ -198,14 +330,14 @@
       explosions.forEach((exp, index) => {
         exp.radius += 0.5;
         exp.alpha -= 0.03;
-        if (exp.radius >= exp.maxRadius || exp.alpha <= 0) {
+        if(exp.radius >= exp.maxRadius || exp.alpha <= 0) {
           explosions.splice(index, 1);
         }
       });
 
       // パワーアップアイテム生成＆更新
       spawnPowerUpTimer++;
-      if (spawnPowerUpTimer > 500) {  // 出現頻度の閾値を約500フレームに設定
+      if (spawnPowerUpTimer > 500) {
         spawnPowerUp();
         spawnPowerUpTimer = 0;
       }
@@ -216,10 +348,10 @@
         }
         if (rectIntersect(player, item)) {
           attackPower.type = item.type;
-          attackPower.timer = 600; // 600フレーム有効
+          attackPower.timer = 600;
           powerUps.splice(index, 1);
           let effColor = (item.type === "triple") ? "cyan" : "magenta";
-          createExplosion(player.x + player.width/2, player.y + player.height/2, effColor);
+          createExplosion(player.x + player.width / 2, player.y + player.height / 2, effColor);
         }
       });
 
@@ -288,7 +420,7 @@
               bullets.splice(bIndex, 1);
               enemies.splice(eIndex, 1);
               score += 10;
-              createExplosion(e.x + e.width/2, e.y + e.height/2, "red");
+              createExplosion(e.x + e.width / 2, e.y + e.height / 2, "red");
             }
           });
         });
@@ -306,7 +438,7 @@
       }
     }
 
-    // 矩形衝突判定関数
+    // 矩形衝突判定
     function rectIntersect(a, b) {
       return a.x < b.x + b.width &&
              a.x + a.width > b.x &&
@@ -314,12 +446,11 @@
              a.y + a.height > b.y;
     }
 
-    // プレイヤー弾発射関数（攻撃パワーに応じたパターン）
+    // プレイヤー弾発射（攻撃パワーに応じたパターン）
     function shoot() {
       if (attackPower.type === "triple") {
-        // 中央・左右の3方向
         bullets.push({
-          x: player.x + player.width/2 - 2.5,
+          x: player.x + player.width / 2 - 2.5,
           y: player.y,
           width: 5,
           height: 10,
@@ -327,7 +458,7 @@
           dy: -7
         });
         bullets.push({
-          x: player.x + player.width/2 - 2.5,
+          x: player.x + player.width / 2 - 2.5,
           y: player.y,
           width: 5,
           height: 10,
@@ -335,7 +466,7 @@
           dy: -7
         });
         bullets.push({
-          x: player.x + player.width/2 - 2.5,
+          x: player.x + player.width / 2 - 2.5,
           y: player.y,
           width: 5,
           height: 10,
@@ -343,12 +474,11 @@
           dy: -7
         });
       } else if (attackPower.type === "spread") {
-        // 5方向：角度 -30°, -15°, 0°, 15°, 30°
         const angles = [-30, -15, 0, 15, 30];
         angles.forEach(angle => {
           let rad = angle * Math.PI / 180;
           bullets.push({
-            x: player.x + player.width/2 - 2.5,
+            x: player.x + player.width / 2 - 2.5,
             y: player.y,
             width: 5,
             height: 10,
@@ -357,9 +487,8 @@
           });
         });
       } else {
-        // 通常は単発
         bullets.push({
-          x: player.x + player.width/2 - 2.5,
+          x: player.x + player.width / 2 - 2.5,
           y: player.y,
           width: 5,
           height: 10,
@@ -369,7 +498,7 @@
       }
     }
 
-    // 通常敵生成関数
+    // 通常敵生成
     function spawnEnemy() {
       const enemySize = 30;
       enemies.push({
@@ -387,7 +516,7 @@
       enemies = [];
       bossBullets = [];
       bossAttackTimer = 0;
-      let extraHealth = Math.floor(score / 100) * 50;  // 100点毎に50増加
+      let extraHealth = Math.floor(score / 100) * 50;
       boss = {
         x: canvas.width / 2 - 50,
         y: 50,
@@ -398,12 +527,11 @@
       };
     }
 
-    // ボス弾発射関数（サイズを大きく変更）
+    // ボス弾発射（大きめのサイズ）
     function bossShoot() {
       let extraSpeed = Math.floor(score / 100);
-      // ボス弾のサイズを拡大（幅10, 高さ15）
       bossBullets.push({
-        x: boss.x + boss.width/2 - 5, // 中央揃え
+        x: boss.x + boss.width / 2 - 5,
         y: boss.y + boss.height,
         width: 10,
         height: 15,
@@ -411,7 +539,7 @@
       });
     }
 
-    // ゲームオーバー状態をリセットする関数
+    // ゲームオーバー状態リセット
     function resetGame() {
       gameOver = false;
       score = 0;
@@ -430,9 +558,8 @@
       initStars();
     }
 
-    // ゲームオーバー描画＋リトライボタン描画
+    // ゲームオーバー描画＋リトライボタン
     function drawGameOver() {
-      // オーバーレイ
       ctx.fillStyle = "rgba(0,0,0,0.5)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = "white";
@@ -441,7 +568,6 @@
       ctx.font = "20px Arial";
       ctx.fillText("Score: " + score, canvas.width / 2 - 40, canvas.height / 2);
       
-      // リトライボタン
       const btnWidth = 150;
       const btnHeight = 50;
       const btnX = canvas.width / 2 - btnWidth / 2;
@@ -449,10 +575,8 @@
       
       ctx.fillStyle = "#333";
       ctx.fillRect(btnX, btnY, btnWidth, btnHeight);
-      
       ctx.strokeStyle = "white";
       ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
-      
       ctx.fillStyle = "white";
       ctx.font = "24px Arial";
       ctx.fillText("Retry", canvas.width / 2 - 30, btnY + 32);
@@ -462,17 +586,14 @@
     function draw() {
       drawStars();
       
-      // プレイヤー描画
       ctx.fillStyle = (attackPower.type === "normal") ? "blue" : ((attackPower.type === "triple") ? "cyan" : "magenta");
       ctx.fillRect(player.x, player.y, player.width, player.height);
       
-      // プレイヤー弾描画
       ctx.fillStyle = "yellow";
       bullets.forEach(b => {
         ctx.fillRect(b.x, b.y, b.width, b.height);
       });
       
-      // 通常敵描画
       if (!bossActive) {
         ctx.fillStyle = "red";
         enemies.forEach(e => {
@@ -480,7 +601,6 @@
         });
       }
       
-      // ボス描画
       if (bossActive && boss) {
         ctx.fillStyle = "purple";
         ctx.fillRect(boss.x, boss.y, boss.width, boss.height);
@@ -490,7 +610,6 @@
         ctx.fillRect(boss.x, boss.y - 10, boss.width * (boss.health / (200 + Math.floor(score / 100) * 50)), 5);
       }
       
-      // ボス弾描画（大きめのサイズ）
       if (bossActive) {
         ctx.fillStyle = "orange";
         bossBullets.forEach(b => {
@@ -498,7 +617,6 @@
         });
       }
       
-      // パワーアップアイテム描画（丸く、球体風グラデーション）
       powerUps.forEach(item => {
         let centerX = item.x + item.width / 2;
         let centerY = item.y + item.height / 2;
@@ -516,7 +634,6 @@
         ctx.fill();
       });
       
-      // 爆発エフェクト描画
       explosions.forEach(exp => {
         ctx.save();
         ctx.globalAlpha = exp.alpha;
@@ -527,7 +644,6 @@
         ctx.restore();
       });
       
-      // スコア表示
       ctx.fillStyle = "white";
       ctx.font = "20px Arial";
       ctx.fillText("Score: " + score, 10, 30);
@@ -545,7 +661,7 @@
     }
     gameLoop();
 
-    // ゲームオーバー時、リトライボタンがクリックされたらリセットするイベント
+    // ゲームオーバー時、リトライボタンがクリックされたらリセットする
     canvas.addEventListener("click", function(e) {
       if (!gameOver) return;
       const rect = canvas.getBoundingClientRect();
