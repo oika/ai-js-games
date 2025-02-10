@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>レスポンシブ対応シューティングゲーム</title>
+  <title>レスポンシブ＆スマホ対応シューティングゲーム</title>
   <style>
     html, body {
       margin: 0;
@@ -27,7 +27,7 @@
       width: 100%;
       height: 100%;
     }
-    /* 画面左上に操作説明 */
+    /* 操作方法の説明を画面左上に表示 */
     #instructions {
       position: absolute;
       top: 10px;
@@ -54,22 +54,27 @@
     /* D-pad（方向キー）のコンテナ */
     #dpad {
       position: relative;
-      width: 150px;
-      height: 150px;
+      width: 200px;  /* 少し大きく */
+      height: 200px;
       pointer-events: auto;
     }
+    /* 各方向ボタン。サイズを大きめに、かつ長押しでのテキスト選択を防止 */
     .dpad-button {
       position: absolute;
-      width: 50px;
-      height: 50px;
-      font-size: 24px;
+      width: 70px;
+      height: 70px;
+      font-size: 32px;
       background: rgba(255,255,255,0.2);
       border: 2px solid white;
       border-radius: 8px;
       color: white;
       outline: none;
       pointer-events: auto;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
     }
+    /* 方向ボタンの配置 */
     #btn-up {
       top: 0;
       left: 50%;
@@ -90,7 +95,7 @@
       right: 0;
       transform: translateY(-50%);
     }
-    /* シュートボタン */
+    /* シュートボタン。大きくし、テキスト選択を防止 */
     #shoot-container {
       pointer-events: auto;
       display: flex;
@@ -98,15 +103,18 @@
       justify-content: center;
     }
     #btn-shoot {
-      width: 80px;
-      height: 80px;
-      font-size: 20px;
+      width: 100px;
+      height: 100px;
+      font-size: 24px;
       background: rgba(255,255,255,0.2);
       border: 2px solid white;
       border-radius: 50%;
       color: white;
       outline: none;
       pointer-events: auto;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
     }
   </style>
 </head>
@@ -140,12 +148,11 @@
   </div>
 
   <script>
-    // キャンバスのリサイズ処理
+    // キャンバスのリサイズ処理（コンテナサイズに合わせて canvas のサイズを更新）
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
     function resizeGame() {
       const container = document.getElementById("gameContainer");
-      // キャンバスの解像度をコンテナのサイズに合わせる
       canvas.width = container.clientWidth;
       canvas.height = container.clientHeight;
     }
@@ -187,7 +194,7 @@
       });
     }
 
-    // ゲーム状態など（これまでのコードと同様）
+    // ゲーム状態
     let gameOver = false;
     let score = 0;
     let spawnTimer = 0;
@@ -510,7 +517,7 @@
       });
     }
 
-    // ボス生成（スコアに応じて強化）
+    // ボス生成（スコアに応じた強化）
     function startBossBattle() {
       bossActive = true;
       enemies = [];
@@ -558,7 +565,7 @@
       initStars();
     }
 
-    // ゲームオーバー描画＋リトライボタン
+    // ゲームオーバー描画＋リトライボタン描画
     function drawGameOver() {
       ctx.fillStyle = "rgba(0,0,0,0.5)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -661,7 +668,7 @@
     }
     gameLoop();
 
-    // ゲームオーバー時、リトライボタンがクリックされたらリセットする
+    // ゲームオーバー時、リトライボタンがクリックされたらリセットするイベント
     canvas.addEventListener("click", function(e) {
       if (!gameOver) return;
       const rect = canvas.getBoundingClientRect();
