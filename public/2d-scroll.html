@@ -12,17 +12,28 @@
       bottom: 20px;
       left: 0;
       right: 0;
-      text-align: center;
       z-index: 1000;
       pointer-events: none;
+    }
+    /* 左下に左右移動ボタンを配置 */
+    #moveControls {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+    }
+    /* 右下にジャンプボタンを配置 */
+    #jumpControl {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
     }
     .control-btn {
       display: inline-block;
       background: rgba(0,0,0,0.3);
       color: white;
-      font-size: 24px;
-      padding: 15px 20px;
-      margin: 0 10px;
+      font-size: 32px;  /* サイズ拡大 */
+      padding: 20px 30px; /* サイズ拡大 */
+      margin: 10px;
       border-radius: 10px;
       pointer-events: auto;
       user-select: none;
@@ -34,9 +45,13 @@
   <canvas id="gameCanvas" width="800" height="600"></canvas>
   <!-- タッチ操作用コントロールボタン -->
   <div id="controls">
-    <div id="btnLeft" class="control-btn">←</div>
-    <div id="btnJump" class="control-btn">↑</div>
-    <div id="btnRight" class="control-btn">→</div>
+    <div id="moveControls">
+      <div id="btnLeft" class="control-btn">←</div>
+      <div id="btnRight" class="control-btn">→</div>
+    </div>
+    <div id="jumpControl">
+      <div id="btnJump" class="control-btn">↑</div>
+    </div>
   </div>
   <script>
     /**************************************
@@ -99,10 +114,8 @@
     /**************************************
      * ステージ定義
      * 各ステージは mapWidth、敵・トラップ配置、プレイヤー開始位置に加え、
-     * groundProfile（水平セグメント＋垂直部分）を持ちます。
-
+     * groundProfile（水平セグメント＋垂直部分）を持ちます.
      * 例：ステージ2では、x=1000 で高さが 550→500 に変化し、
-
      *      x=2300～2500 を落とし穴（solid:false, 幅200px）に設定。
      **************************************/
     const stages = [
@@ -321,11 +334,8 @@
 
     /**************************************
      * プレイヤー描画用：棒人間描画関数
-
      * drawStickman(x, y, width, height, direction, state)
-
      * state: 'walking' or 'jumping' or 'idle'
-
      **************************************/
     function drawStickman(x, y, width, height, direction, state) {
       ctx.save();
@@ -347,7 +357,6 @@
       ctx.lineTo(centerX, bodyEndY);
       ctx.stroke();
       // 腕（walking時は振れる）
-
       let armLength = width * 0.7;
       let armY = bodyStartY + (bodyEndY - bodyStartY) * 0.3;
       let armAngle = 0;
@@ -371,7 +380,6 @@
       ctx.stroke();
       ctx.restore();
       // 脚（walking時は振れる、jumpingなら直線）
-
       let legLength = headRadius * 1.5;
       let legAngle = 0;
       if(state === "walking") { legAngle = Math.sin(Date.now()/150)*0.5; }
@@ -398,11 +406,8 @@
 
     /**************************************
      * プレイヤー描画
-
      * 状態判定：もし grounded でなければ 'jumping'
-
      * もし grounded かつ dx != 0 なら 'walking'、そうでなければ 'idle'
-
      **************************************/
     function drawPlayer() {
       let state = "idle";
@@ -432,61 +437,14 @@
 
     /**************************************
      * 敵の更新処理（壁判定を追加）
-
      * プレイヤーと同様、groundProfile内の垂直な境界を検出して、
-
      * 移動方向の端がその境界を超えそうなら移動をキャンセルします。
-     **************************************/
-    function updateEnemies() {
-      currentStage.enemies.forEach(enemy => {
-        if(enemy.type === "walker") {
-          if(enemy.grounded) { checkVerticalWallForEntity(enemy); }
-          enemy.x += enemy.dx;
-          if(enemy.x < enemy.initialX - 200 || enemy.x > enemy.initialX + 200) { enemy.dx = -enemy.dx; }
-        } else if(enemy.type === "jumper") {
-          enemy.jumpTimer--;
-          if(enemy.grounded && enemy.jumpTimer <= 0) {
-            enemy.dy = -10;
-            enemy.grounded = false;
-            enemy.jumpTimer = enemy.jumpCooldown;
-          }
-          enemy.dy += GRAVITY;
-          enemy.y += enemy.dy;
-          let ge = getGround(enemy.x + enemy.width/2);
-          if(ge.solid && enemy.y > ge.y - enemy.height) {
-            enemy.y = ge.y - enemy.height;
-            enemy.dy = 0;
-            enemy.grounded = true;
-          }
-        } else if(enemy.type === "ranged") {
-          enemy.shootTimer--;
-          if(enemy.shootTimer <= 0) {
-            let ex = enemy.x + enemy.width/2;
-            let ey = enemy.y + enemy.height/2;
-            let px = player.x + player.width/2;
-            let py = player.y + player.height/2;
-            let angle = Math.atan2(py - ey, px - ex);
-            let speed = 5;
-            projectiles.push({ x: ex, y: ey, dx: Math.cos(angle)*speed, dy: Math.sin(angle)*speed, radius: 5 });
-            enemy.shootTimer = 120;
-          }
-        }
-      });
-    }
-
-    /**************************************
-     * checkVerticalWallForEntity() : プレイヤーまたは敵の壁判定
-
-     * groundProfile 内の垂直な境界について、
-
-     * 移動方向の端がその境界を越えそうなら dx を 0 にします。
      **************************************/
     function checkVerticalWallForEntity(entity) {
       if(entity.grounded) {
         const gp = currentStage.groundProfile;
         for(let i = 0; i < gp.length - 1; i++) {
           if(gp[i].x === gp[i+1].x) { // 垂直境界
-
             let wallX = gp[i].x;
             if(entity.dx > 0 && entity.x + entity.width <= wallX && entity.x + entity.width + entity.dx > wallX) {
               entity.dx = 0;
@@ -600,7 +558,9 @@
         ctx.fill();
       });
       // プレイヤー
-      if(!isPlayerDead) { drawPlayer(); } else {
+      if(!isPlayerDead) { 
+        drawPlayer(); 
+      } else {
         explosionParticles.forEach(p => {
           ctx.fillStyle = "rgba(255,165,0," + p.alpha + ")";
           ctx.beginPath();
