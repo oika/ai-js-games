@@ -54,19 +54,19 @@
     /* D-pad（方向キー）のコンテナ */
     #dpad {
       position: relative;
-      width: 200px;  /* 少し大きく */
-      height: 200px;
+      width: 250px;  /* 拡大 */
+      height: 250px;
       pointer-events: auto;
     }
     /* 各方向ボタン。サイズを大きめに、かつ長押しでのテキスト選択を防止 */
     .dpad-button {
       position: absolute;
-      width: 70px;
-      height: 70px;
-      font-size: 32px;
+      width: 90px;
+      height: 90px;
+      font-size: 40px;
       background: rgba(255,255,255,0.2);
       border: 2px solid white;
-      border-radius: 8px;
+      border-radius: 10px;
       color: white;
       outline: none;
       pointer-events: auto;
@@ -103,9 +103,9 @@
       justify-content: center;
     }
     #btn-shoot {
-      width: 100px;
-      height: 100px;
-      font-size: 24px;
+      width: 120px;
+      height: 120px;
+      font-size: 28px;
       background: rgba(255,255,255,0.2);
       border: 2px solid white;
       border-radius: 50%;
@@ -217,7 +217,7 @@
     let powerUps = [];
     let spawnPowerUpTimer = 0;
 
-    // プレイヤー
+    // プレイヤー（宇宙船のサイズ調整）
     const player = {
       x: canvas.width / 2 - 15,
       y: canvas.height - 50,
@@ -593,9 +593,27 @@
     function draw() {
       drawStars();
       
+      // プレイヤーの描画を宇宙船っぽいデザインに変更
+      ctx.save();
+      ctx.translate(player.x + player.width / 2, player.y + player.height / 2);
       ctx.fillStyle = (attackPower.type === "normal") ? "blue" : ((attackPower.type === "triple") ? "cyan" : "magenta");
-      ctx.fillRect(player.x, player.y, player.width, player.height);
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      // 先端（上）
+      ctx.moveTo(0, -player.height / 2);
+      // 右側の翼（下右）
+      ctx.lineTo(player.width / 2, player.height / 2);
+      // 中央下部
+      ctx.lineTo(0, player.height / 3);
+      // 左側の翼（下左）
+      ctx.lineTo(-player.width / 2, player.height / 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
       
+      // 弾・敵・パワーアップなどの描画はそのまま
       ctx.fillStyle = "yellow";
       bullets.forEach(b => {
         ctx.fillRect(b.x, b.y, b.width, b.height);
