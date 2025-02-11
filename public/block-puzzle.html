@@ -2,6 +2,8 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
+  <!-- スマートフォンなどでの拡大表示を防ぐ -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Infinite Puzzle Game</title>
   <style>
     body {
@@ -11,7 +13,7 @@
       margin: 0;
       padding: 20px;
     }
-    /* キャンバスを含むコンテナ（オーバーレイの基準にする） */
+    /* ゲームキャンバスとオーバーレイを含むコンテナ */
     #gameContainer {
       position: relative;
       display: inline-block;
@@ -21,15 +23,13 @@
       background-color: #fff;
       display: block;
     }
-    /* ゲームオーバー時に表示するオーバーレイ */
+    /* ゲームオーバーレイ（キャンバスと同サイズ） */
     #gameOverOverlay {
       position: absolute;
       top: 0;
       left: 0;
-      width: 400px;
-      height: 400px;
       background-color: rgba(0, 0, 0, 0.5);
-      display: none; /* 初期状態は非表示 */
+      display: none;
       align-items: center;
       justify-content: center;
       z-index: 10;
@@ -44,62 +44,93 @@
       font-size: 20px;
       margin: 0 0 10px;
     }
-    #retryButton {
+    /* キャンバス下のコントロール領域（右寄せ） */
+    #controlContainer {
+      text-align: right;
+      margin-top: 10px;
+    }
+    /* キャンバス下の「やり直す」ボタン */
+    #restartButton {
       font-size: 16px;
-      padding: 8px 16px;
+      padding: 10px 20px;
       cursor: pointer;
     }
   </style>
 </head>
 <body>
-  <!-- キャンバスとオーバーレイを包含するコンテナ -->
+  <!-- ゲームキャンバスとオーバーレイ -->
   <div id="gameContainer">
-    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    <!-- キャンバスは JS により動的にサイズ設定 -->
+    <canvas id="gameCanvas"></canvas>
     <div id="gameOverOverlay">
       <div id="overlayContent">
         <p id="finalScore">Final Score: 0</p>
-        <button id="retryButton">Retry</button>
+        <!-- オーバーレイ内のボタンは「リトライ」と表示 -->
+        <button id="retryButton">リトライ</button>
       </div>
     </div>
   </div>
-  <!-- 現在のスコア表示（ゲーム中は更新されます） -->
+  <!-- キャンバス下のコントロール領域（右寄せ） -->
+  <div id="controlContainer">
+    <button id="restartButton">やり直す</button>
+  </div>
+  <!-- ゲーム中のスコア表示 -->
   <p>Score: <span id="score">0</span></p>
 
   <script>
-    // キャンバスと基本設定
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const scoreDisplay = document.getElementById('score');
     const overlay = document.getElementById('gameOverOverlay');
     const finalScoreDisplay = document.getElementById('finalScore');
     const retryButton = document.getElementById('retryButton');
+    const restartButton = document.getElementById('restartButton');
 
     const ROWS = 10;
     const COLS = 10;
-    const TILE_SIZE = 40;
+    let TILE_SIZE = 40; // ※リサイズ時に上書きします
     const COLORS = ['red', 'green', 'blue', 'orange', 'purple'];
 
-    let grid = [];         // 各セルには色（文字列）または null を保持
+    let grid = [];
     let score = 0;
-    let isAnimating = false;  // エフェクト中（爆発、落下、シェイク）は操作を無効化
-
-    // パーティクル用配列（爆発エフェクト用）
+    let isAnimating = false;
     let particles = [];
-
-    // 落下アニメーション用配列
     let movingAnimations = [];
-    let animationStartTime = 0;  // 落下アニメーション開始時刻
+    let animationStartTime = 0;
 
-    // ------------------------------
+    // 初期配置を保持するための変数
+    let initialGrid = null;
+    // シンプルな2次元配列のディープコピー
+    function cloneGrid(src) {
+      return src.map(row => row.slice());
+    }
+
+    // 画面幅に合わせたキャンバスサイズの設定
+    // 画面幅の90%を採用し、最大幅は400pxに設定
+    function resizeCanvas() {
+      let size = Math.min(window.innerWidth * 0.9, 400);
+      canvas.width = size;
+      canvas.height = size;
+      TILE_SIZE = size / COLS;
+      // オーバーレイのサイズもキャンバスに合わせる
+      overlay.style.width = size + "px";
+      overlay.style.height = size + "px";
+      render();
+    }
+    window.addEventListener('resize', function() {
+      if (!isAnimating) {
+        resizeCanvas();
+      }
+    });
+
     // Particle クラス（爆発エフェクト用）
     class Particle {
       constructor(x, y, color) {
         this.x = x;
         this.y = y;
-        // 速度は -2～2 のランダム値
         this.vx = (Math.random() - 0.5) * 4;
         this.vy = (Math.random() - 0.5) * 4;
-        this.life = 30 + Math.random() * 10;  // 生存フレーム数
+        this.life = 30 + Math.random() * 10;
         this.color = color;
         this.size = 4 + Math.random() * 3;
       }
@@ -116,9 +147,8 @@
       }
     }
 
-    // ------------------------------
     // ブロック（セル）の描画
-    // ブロックは上部が明るく下部が元色になるリニアグラデーションで描画
+    // 上部が明るく、下部が元色になるリニアグラデーションで描画
     function drawBlock(x, y, color) {
       let gradient = ctx.createLinearGradient(x, y, x, y + TILE_SIZE);
       gradient.addColorStop(0, "white");
@@ -129,25 +159,23 @@
       ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
     }
 
-    // ------------------------------
-    // グリッドの初期化：各セルにランダムな色を配置
+    // グリッドの初期化（新規生成）
     function initGrid() {
-      grid = [];
+      let newGrid = [];
       for (let r = 0; r < ROWS; r++) {
         let row = [];
         for (let c = 0; c < COLS; c++) {
           row.push(randomColor());
         }
-        grid.push(row);
+        newGrid.push(row);
       }
+      return newGrid;
     }
-
     function randomColor() {
       return COLORS[Math.floor(Math.random() * COLORS.length)];
     }
 
-    // ------------------------------
-    // グリッド全体の描画（通常状態）
+    // グリッド全体の描画
     function drawGrid() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       for (let r = 0; r < ROWS; r++) {
@@ -159,15 +187,12 @@
       }
     }
 
-    // ------------------------------
     // パーティクルの描画
     function drawParticles() {
       for (const p of particles) {
         p.draw(ctx);
       }
     }
-
-    // メイン描画関数（エフェクト中はパーティクルも描画）
     function render() {
       drawGrid();
       if (particles.length > 0) {
@@ -175,7 +200,6 @@
       }
     }
 
-    // ------------------------------
     // クリック座標からグリッド上のセル位置を取得
     function getTileAt(x, y) {
       const col = Math.floor(x / TILE_SIZE);
@@ -186,8 +210,7 @@
       return null;
     }
 
-    // ------------------------------
-    // フラッドフィル：クリックしたセルと同じ色の隣接セル群を再帰的に探索
+    // 再帰的フラッドフィルで同色の隣接セル群を取得
     function floodFill(row, col, color, visited) {
       if (row < 0 || row >= ROWS || col < 0 || col >= COLS) return [];
       if (visited[row][col]) return [];
@@ -201,8 +224,7 @@
       return cells;
     }
 
-    // ------------------------------
-    // 対象セル群を grid から削除（null に設定）
+    // 対象セル群をグリッドから削除（null に設定）
     function removeCells(cells) {
       for (const cell of cells) {
         const [r, c] = cell;
@@ -210,7 +232,6 @@
       }
     }
 
-    // ------------------------------
     // 重力処理：各列内でセルを下に詰める
     function applyGravity() {
       for (let c = 0; c < COLS; c++) {
@@ -221,16 +242,11 @@
           }
         }
         for (let r = ROWS - 1; r >= 0; r--) {
-          if (colCells.length > 0) {
-            grid[r][c] = colCells.pop();
-          } else {
-            grid[r][c] = null;
-          }
+          grid[r][c] = (colCells.length > 0 ? colCells.pop() : null);
         }
       }
     }
 
-    // ------------------------------
     // 列シフト：空の列を除去して左に詰める
     function shiftColumns() {
       let nonEmptyCols = [];
@@ -255,10 +271,8 @@
       grid = newGrid;
     }
 
-    // ------------------------------
-    // 爆発エフェクトの開始
+    // 爆発エフェクト：対象セル位置からパーティクルを発生
     function startExplosion(cells, color, callback) {
-      // 各セル位置からパーティクルを発生
       for (const cell of cells) {
         const [r, c] = cell;
         const centerX = c * TILE_SIZE + TILE_SIZE / 2;
@@ -285,13 +299,11 @@
       requestAnimationFrame(animateExplosion);
     }
 
-    // ------------------------------
     // 落下（移動）エフェクトのアニメーション
     function animateFalling(timestamp) {
-      let progress = (timestamp - animationStartTime) / 300; // 300ms で移動完了
+      let progress = (timestamp - animationStartTime) / 300; // 300ms で完了
       if (progress > 1) progress = 1;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      // 各ブロックの移動位置を補間して描画
       for (let anim of movingAnimations) {
         let t = Math.min(1, (timestamp - animationStartTime) / anim.duration);
         let x = anim.startX + (anim.endX - anim.startX) * t;
@@ -308,21 +320,18 @@
       }
     }
 
-    // ------------------------------
-    // シェイクエフェクト：消えないブロックを軽く左右に振る
+    // シェイクエフェクト：連結数が1のブロックを左右に振動
     function shakeBlock(row, col, color) {
       isAnimating = true;
-      const duration = 300; // 300ms
+      const duration = 300;
       let startTime = null;
       function animateShake(timestamp) {
         if (!startTime) startTime = timestamp;
         let t = (timestamp - startTime) / duration;
         if (t > 1) t = 1;
-        // 振れ幅は最大3px、減衰しながらサイン波で左右に振動
         const amplitude = 3;
         let offset = amplitude * Math.sin(t * Math.PI * 10) * (1 - t);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        // 全セルを通常描画。ただし対象セルは x 座標に offset を加える
         for (let r = 0; r < ROWS; r++) {
           for (let c = 0; c < COLS; c++) {
             if (grid[r][c]) {
@@ -345,16 +354,12 @@
       requestAnimationFrame(animateShake);
     }
 
-    // ------------------------------
-    // ゲームオーバーかどうかをチェックし、オーバーレイを表示する
+    // ゲームオーバー判定：消せるブロックがなければオーバーレイ表示
     function checkGameOver() {
       if (!hasMoves()) {
         showGameOverOverlay();
       }
     }
-
-    // ------------------------------
-    // 消せるブロックが残っていない場合のオーバーレイ表示
     function showGameOverOverlay() {
       finalScoreDisplay.textContent = "Final Score: " + score;
       overlay.style.display = "flex";
@@ -363,10 +368,9 @@
       overlay.style.display = "none";
     }
 
-    // ------------------------------
-    // クリックイベントの処理
+    // クリックイベント処理
     canvas.addEventListener('click', function(event) {
-      if (isAnimating) return; // エフェクト中は操作無効
+      if (isAnimating) return;
       const rect = canvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
@@ -376,11 +380,10 @@
         if (grid[row][col] === null) return;
         let visited = Array.from({ length: ROWS }, () => new Array(COLS).fill(false));
         const cells = floodFill(row, col, grid[row][col], visited);
-        // 2 つ以上連結している場合は削除（エフェクト実行）
         if (cells.length >= 2) {
           isAnimating = true;
           startExplosion(cells, grid[row][col], () => {
-            // --- 落下アニメーションのために、削除前の各列のブロック位置を記録 ---
+            // 落下・列シフトのアニメーションのため、削除前の各列のブロック位置を記録
             let oldPositionsByCol = [];
             for (let c = 0; c < COLS; c++) {
               let colArray = [];
@@ -391,13 +394,10 @@
               }
               oldPositionsByCol.push(colArray);
             }
-            // ブロック群削除
             removeCells(cells);
             score += cells.length;
             scoreDisplay.textContent = score;
-            // 重力処理
             applyGravity();
-            // 列シフトの前に、各列の状態を記録
             let nonEmptyCols = [];
             for (let c = 0; c < COLS; c++) {
               let isEmpty = true;
@@ -407,13 +407,11 @@
               if (!isEmpty) nonEmptyCols.push(c);
             }
             shiftColumns();
-            // --- 落下アニメーション用のデータ作成 ---
             movingAnimations = [];
             for (let j = 0; j < nonEmptyCols.length; j++) {
               let oldCol = nonEmptyCols[j];
-              let colBlocks = oldPositionsByCol[oldCol];  // その列にあったブロック（上から順）
+              let colBlocks = oldPositionsByCol[oldCol];
               let count = colBlocks.length;
-              // 最終的な grid では、該当列 j の下側 count 行が埋まっています
               for (let r = ROWS - count; r < ROWS; r++) {
                 if (grid[r][j] !== null) {
                   let index = r - (ROWS - count);
@@ -429,19 +427,17 @@
                 }
               }
             }
-            // 落下アニメーション開始
             animationStartTime = performance.now();
             requestAnimationFrame(animateFalling);
           });
         } else {
-          // 連結数が 1 なら削除されず、シェイクエフェクトを実行
+          // 連結が1の場合はシェイクエフェクト
           shakeBlock(row, col, grid[row][col]);
         }
       }
     });
 
-    // ------------------------------
-    // まだ消せる同色の隣接ブロックがあるかチェック
+    // 同色の隣接ブロックが存在するかチェック
     function hasMoves() {
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
@@ -455,25 +451,66 @@
       return false;
     }
 
-    // ------------------------------
-    // リセット処理（リトライボタン用）
-    function resetGame() {
+    // 【やり直す】（キャンバス下のボタン）によるリセット
+    // → 初期配置（同じパズル）に戻す。押下前に確認ダイアログを表示する
+    function resetGameSame() {
       score = 0;
       scoreDisplay.textContent = score;
-      initGrid();
+      if (initialGrid === null) {
+        grid = initGrid();
+        initialGrid = cloneGrid(grid);
+      } else {
+        grid = cloneGrid(initialGrid);
+      }
       particles = [];
       movingAnimations = [];
       isAnimating = false;
       hideGameOverOverlay();
+      resizeCanvas();
       render();
     }
 
-    // リトライボタンのイベントリスナー
-    retryButton.addEventListener('click', resetGame);
+    // 【リトライ】（オーバーレイ内のボタン）によるリセット
+    // → 新たな配置のパズルで再スタートする
+    function resetGameNew() {
+      score = 0;
+      scoreDisplay.textContent = score;
+      grid = initGrid();
+      // 新たな配置を保持する
+      initialGrid = cloneGrid(grid);
+      particles = [];
+      movingAnimations = [];
+      isAnimating = false;
+      hideGameOverOverlay();
+      resizeCanvas();
+      render();
+    }
 
-    // ------------------------------
+    // 「やり直す」ボタン（キャンバス下）の確認ダイアログ付きイベント
+    restartButton.addEventListener('click', function() {
+      if (confirm("本当に現在のパズル配置でやり直しますか？")) {
+        resetGameSame();
+      }
+    });
+
+    // ゲームオーバーレイ内の「リトライ」ボタン：新たなパズル配置で再スタート
+    retryButton.addEventListener('click', resetGameNew);
+
     // 初期化
-    resetGame();
+    // ※初回は新たな配置のパズルを生成して初期配置として保持する
+    function initGame() {
+      score = 0;
+      scoreDisplay.textContent = score;
+      grid = initGrid();
+      initialGrid = cloneGrid(grid);
+      particles = [];
+      movingAnimations = [];
+      isAnimating = false;
+      hideGameOverOverlay();
+      resizeCanvas();
+      render();
+    }
+    initGame();
   </script>
 </body>
 </html>
