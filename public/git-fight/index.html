@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ピクセルファイター</title>
+    <title>git fight</title>
     <style>
         body {
             margin: 0;
@@ -25,7 +25,7 @@
             max-height: 100vh;
         }
         #ui {
-            position: absolute;
+            position: fixed;
             top: 10px;
             left: 10px;
             color: white;
@@ -50,12 +50,24 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            color: white;
-            font-size: 48px;
+            color: #ff0000;
+            font-size: 72px;
+            font-weight: bold;
             display: none;
             text-align: center;
-            text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.9);
+            text-shadow: 
+                0 0 10px #ff0000,
+                0 0 20px #ff0000,
+                0 0 30px #ff0000,
+                0 0 40px #ff0000,
+                3px 3px 6px rgba(0, 0, 0, 0.9);
             z-index: 20;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(1); }
+            50% { transform: translate(-50%, -50%) scale(1.05); }
+            100% { transform: translate(-50%, -50%) scale(1); }
         }
         #controls {
             position: absolute;
@@ -67,11 +79,13 @@
         }
         #touchControls {
             display: none;
-            position: absolute;
-            bottom: 20px;
+            position: fixed;
+            bottom: 0;
             left: 0;
             right: 0;
-            height: 120px;
+            height: 140px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px 0;
             z-index: 15;
         }
         .touchButton {
@@ -93,37 +107,37 @@
             background-color: rgba(255, 255, 255, 0.4);
         }
         #leftBtn, #rightBtn {
-            width: 60px;
-            height: 60px;
-            bottom: 0;
+            width: 70px;
+            height: 70px;
+            bottom: 20px;
         }
         #leftBtn {
             left: 20px;
         }
         #rightBtn {
-            left: 90px;
+            left: 100px;
         }
         #attackBtns {
             position: absolute;
             right: 20px;
-            bottom: 0;
+            bottom: 20px;
         }
         #punchBtn, #kickBtn, #specialBtn {
-            width: 50px;
-            height: 50px;
+            width: 60px;
+            height: 60px;
             position: absolute;
         }
         #punchBtn {
-            right: 120px;
-            bottom: 10px;
+            right: 140px;
+            bottom: 0;
         }
         #kickBtn {
-            right: 60px;
-            bottom: 10px;
+            right: 70px;
+            bottom: 0;
         }
         #specialBtn {
             right: 0;
-            bottom: 10px;
+            bottom: 0;
         }
         @media (max-width: 768px) {
             #gameCanvas {
@@ -144,7 +158,13 @@
                 height: 15px;
             }
             #gameOver {
-                font-size: 32px;
+                font-size: 48px;
+            }
+            #gameOver > div:nth-child(2) {
+                font-size: 24px !important;
+            }
+            #gameOver > div:nth-child(3) {
+                font-size: 18px !important;
             }
         }
     </style>
@@ -160,16 +180,17 @@
             </div>
         </div>
         <div id="gameOver">
-            <div>GAME OVER</div>
-            <div style="font-size: 24px">スコア: <span id="finalScore">0</span></div>
-            <div style="font-size: 18px">リロードして再挑戦</div>
+            <div>RESET<br/> --HARD</div>
+            <div style="font-size: 32px; color: #ffff00; margin-top: 20px;">スコア: <span id="finalScore">0</span></div>
+            <div style="font-size: 24px; color: #ffffff; margin-top: 10px;">リロードして再挑戦</div>
         </div>
         <div id="controls">
-            操作: ←→移動 Z:パンチ X:キック C:特殊攻撃
+            操作: ←→移動 ↑/Space:ジャンプ Z:reject X:squash C:fast-forward
         </div>
         <div id="touchControls">
             <div id="leftBtn" class="touchButton">←</div>
             <div id="rightBtn" class="touchButton">→</div>
+            <div id="jumpBtn" class="touchButton" style="left: 60px; bottom: 80px; width: 50px; height: 50px;">↑</div>
             <div id="attackBtns">
                 <div id="punchBtn" class="touchButton">P</div>
                 <div id="kickBtn" class="touchButton">K</div>

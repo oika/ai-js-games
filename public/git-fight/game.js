@@ -8,6 +8,7 @@ class Player {
     constructor() {
         this.x = canvas.width / 2;
         this.y = canvas.height - 120;
+        this.baseY = canvas.height - 120;
         this.width = 32;
         this.height = 64;
         this.health = 100;
@@ -21,6 +22,10 @@ class Player {
         this.invulnerableTime = 0;
         this.walkFrame = 0;
         this.isMoving = false;
+        this.velocityY = 0;
+        this.isJumping = false;
+        this.jumpPower = -15;
+        this.gravity = 0.8;
     }
 
     update() {
@@ -37,7 +42,24 @@ class Player {
             this.isMoving = true;
         }
 
-        if (this.isMoving) {
+        // Jump
+        if ((keys.ArrowUp || keys[' ']) && !this.isJumping) {
+            this.velocityY = this.jumpPower;
+            this.isJumping = true;
+        }
+
+        // Apply gravity
+        this.velocityY += this.gravity;
+        this.y += this.velocityY;
+
+        // Ground collision
+        if (this.y > this.baseY) {
+            this.y = this.baseY;
+            this.velocityY = 0;
+            this.isJumping = false;
+        }
+
+        if (this.isMoving && !this.isJumping) {
             this.walkFrame = (this.walkFrame + 1) % 20;
         } else {
             this.walkFrame = 0;
@@ -54,6 +76,13 @@ class Player {
                     this.x + this.facing * 20,
                     this.y - 16,
                     this.facing
+                ));
+                // Add text effect for special attack
+                textEffects.push(new TextEffect(
+                    this.x,
+                    this.y - 60,
+                    'fast-forward!',
+                    '#00ffff'
                 ));
             }
             
@@ -291,24 +320,113 @@ class Enemy {
     constructor(side) {
         this.x = side === 'left' ? -30 : canvas.width + 30;
         this.y = canvas.height - 120;
+        this.baseY = canvas.height - 120;
         this.width = 32;
         this.height = 64;
-        this.type = Math.floor(Math.random() * 4);
-        this.health = [30, 40, 50, 35][this.type];
-        this.speed = [2, 1.5, 1, 2.5][this.type];
-        this.damage = [10, 15, 20, 8][this.type];
+        this.type = Math.floor(Math.random() * 7); // Increased enemy types
+        this.health = [30, 40, 50, 35, 45, 40, 50][this.type];
+        this.speed = [2, 1.5, 1, 2.5, 1.8, 0, 2][this.type];
+        this.damage = [10, 15, 20, 8, 12, 15, 18][this.type];
         this.attackCooldown = 0;
         this.facing = side === 'left' ? 1 : -1;
-        this.score = [100, 150, 200, 120][this.type];
+        this.score = [100, 150, 200, 120, 180, 250, 300][this.type];
         this.walkFrame = 0;
+        
+        // Special properties for new enemy types
+        this.behaviorTimer = 0;
+        this.state = 'moving'; // moving, stopped, retreating
+        this.velocityY = 0;
+        this.isJumping = false;
+        this.jumpCooldown = 0;
+        this.throwCooldown = 0;
+        
+        // Speech bubble text for each enemy type
+        this.speechText = [
+            'conflict!',      // Type 0 - Red warrior
+            'pull request!',  // Type 1 - Green ninja
+            'merge!',         // Type 2 - Blue knight
+            'force push!',    // Type 3 - Orange fighter
+            'abort!',         // Type 4 - Yellow ninja (stops/retreats)
+            'cherry-pick!',   // Type 5 - Purple mage (throws)
+            'revert!'         // Type 6 - Cyan acrobat (jumps)
+        ][this.type];
     }
 
     update(player) {
-        this.x += this.speed * this.facing;
-        this.walkFrame = (this.walkFrame + 1) % 20;
-
         const distToPlayer = Math.abs(this.x - player.x);
+        const playerDirection = this.x < player.x ? 1 : -1;
         
+        // Type 4: Stop and retreat enemy
+        if (this.type === 4) {
+            this.behaviorTimer++;
+            
+            if (this.state === 'moving' && distToPlayer < 100) {
+                this.state = 'stopped';
+                this.behaviorTimer = 0;
+            } else if (this.state === 'stopped' && this.behaviorTimer > 30) {
+                this.state = 'retreating';
+                this.behaviorTimer = 0;
+            } else if (this.state === 'retreating' && this.behaviorTimer > 20) {
+                this.state = 'moving';
+                this.behaviorTimer = 0;
+            }
+            
+            if (this.state === 'moving') {
+                this.x += this.speed * this.facing;
+            } else if (this.state === 'retreating') {
+                this.x -= this.speed * this.facing * 1.5;
+            }
+        }
+        // Type 5: Throwing enemy
+        else if (this.type === 5) {
+            // Stays at distance and throws
+            if (distToPlayer > 200) {
+                this.x += this.speed * playerDirection;
+            } else if (distToPlayer < 150) {
+                this.x -= this.speed * playerDirection;
+            }
+            
+            this.throwCooldown--;
+            if (this.throwCooldown <= 0 && distToPlayer < 300) {
+                enemyProjectiles.push(new EnemyProjectile(
+                    this.x,
+                    this.y - 20,
+                    playerDirection
+                ));
+                this.throwCooldown = 80;
+            }
+        }
+        // Type 6: Jumping enemy
+        else if (this.type === 6) {
+            this.x += this.speed * this.facing;
+            
+            // Jump when close to player
+            this.jumpCooldown--;
+            if (distToPlayer < 150 && this.jumpCooldown <= 0 && !this.isJumping) {
+                this.velocityY = -12;
+                this.isJumping = true;
+                this.jumpCooldown = 60;
+            }
+            
+            // Apply gravity
+            this.velocityY += 0.6;
+            this.y += this.velocityY;
+            
+            // Ground collision
+            if (this.y > this.baseY) {
+                this.y = this.baseY;
+                this.velocityY = 0;
+                this.isJumping = false;
+            }
+        }
+        // Original enemy types
+        else {
+            this.x += this.speed * this.facing;
+        }
+        
+        this.walkFrame = (this.walkFrame + 1) % 20;
+        
+        // Attack logic
         if (distToPlayer < 50 && this.attackCooldown <= 0) {
             player.takeDamage(this.damage);
             this.attackCooldown = 60;
@@ -511,6 +629,106 @@ class Enemy {
             this.drawPixel(20, 13, '#f5deb3');
             this.drawPixel(21, 14, '#f5deb3');
             this.drawPixel(21, 15, '#f5deb3');
+        } else if (this.type === 4) {
+            // Stop and retreat enemy - yellow ninja
+            for (let i = 5; i < 10; i++) {
+                this.drawPixel(13, i, '#ffd700');
+                this.drawPixel(14, i, '#ffd700');
+                this.drawPixel(15, i, '#ffd700');
+                this.drawPixel(16, i, '#ffd700');
+                this.drawPixel(17, i, '#ffd700');
+                this.drawPixel(18, i, '#ffd700');
+            }
+            
+            this.drawPixel(14, 7, '#000');
+            this.drawPixel(17, 7, '#000');
+            
+            // Mask
+            this.drawPixel(12, 8, '#333');
+            this.drawPixel(19, 8, '#333');
+            
+            for (let i = 0; i < 8; i++) {
+                this.drawPixel(12, 11 + i, '#ff8c00');
+                this.drawPixel(13, 11 + i, '#ff8c00');
+                this.drawPixel(14, 11 + i, '#ff8c00');
+                this.drawPixel(15, 11 + i, '#ff8c00');
+                this.drawPixel(16, 11 + i, '#ff8c00');
+                this.drawPixel(17, 11 + i, '#ff8c00');
+                this.drawPixel(18, 11 + i, '#ff8c00');
+                this.drawPixel(19, 11 + i, '#ff8c00');
+            }
+        } else if (this.type === 5) {
+            // Throwing enemy - purple mage
+            // Hood
+            for (let i = 2; i < 6; i++) {
+                this.drawPixel(12, i, '#4b0082');
+                this.drawPixel(13, i, '#4b0082');
+                this.drawPixel(14, i, '#4b0082');
+                this.drawPixel(15, i, '#4b0082');
+                this.drawPixel(16, i, '#4b0082');
+                this.drawPixel(17, i, '#4b0082');
+                this.drawPixel(18, i, '#4b0082');
+                this.drawPixel(19, i, '#4b0082');
+            }
+            
+            for (let i = 6; i < 10; i++) {
+                this.drawPixel(13, i, '#dda0dd');
+                this.drawPixel(14, i, '#dda0dd');
+                this.drawPixel(15, i, '#dda0dd');
+                this.drawPixel(16, i, '#dda0dd');
+                this.drawPixel(17, i, '#dda0dd');
+                this.drawPixel(18, i, '#dda0dd');
+            }
+            
+            this.drawPixel(14, 7, '#ff00ff');
+            this.drawPixel(17, 7, '#ff00ff');
+            
+            for (let i = 0; i < 10; i++) {
+                this.drawPixel(11, 11 + i, '#4b0082');
+                this.drawPixel(12, 11 + i, '#4b0082');
+                this.drawPixel(13, 11 + i, '#4b0082');
+                this.drawPixel(14, 11 + i, '#4b0082');
+                this.drawPixel(15, 11 + i, '#4b0082');
+                this.drawPixel(16, 11 + i, '#4b0082');
+                this.drawPixel(17, 11 + i, '#4b0082');
+                this.drawPixel(18, 11 + i, '#4b0082');
+                this.drawPixel(19, 11 + i, '#4b0082');
+                this.drawPixel(20, 11 + i, '#4b0082');
+            }
+        } else if (this.type === 6) {
+            // Jumping enemy - cyan acrobat
+            for (let i = 5; i < 10; i++) {
+                this.drawPixel(13, i, '#00ced1');
+                this.drawPixel(14, i, '#00ced1');
+                this.drawPixel(15, i, '#00ced1');
+                this.drawPixel(16, i, '#00ced1');
+                this.drawPixel(17, i, '#00ced1');
+                this.drawPixel(18, i, '#00ced1');
+            }
+            
+            this.drawPixel(14, 7, '#000');
+            this.drawPixel(17, 7, '#000');
+            
+            // Headband
+            this.drawPixel(12, 5, '#ff1493');
+            this.drawPixel(13, 5, '#ff1493');
+            this.drawPixel(14, 5, '#ff1493');
+            this.drawPixel(15, 5, '#ff1493');
+            this.drawPixel(16, 5, '#ff1493');
+            this.drawPixel(17, 5, '#ff1493');
+            this.drawPixel(18, 5, '#ff1493');
+            this.drawPixel(19, 5, '#ff1493');
+            
+            for (let i = 0; i < 8; i++) {
+                this.drawPixel(12, 11 + i, '#00008b');
+                this.drawPixel(13, 11 + i, '#00008b');
+                this.drawPixel(14, 11 + i, '#00008b');
+                this.drawPixel(15, 11 + i, '#00008b');
+                this.drawPixel(16, 11 + i, '#00008b');
+                this.drawPixel(17, 11 + i, '#00008b');
+                this.drawPixel(18, 11 + i, '#00008b');
+                this.drawPixel(19, 11 + i, '#00008b');
+            }
         }
 
         for (let i = 0; i < 12; i++) {
@@ -532,6 +750,47 @@ class Enemy {
         this.drawPixel(19, 31 - legOffset, '#333');
 
         ctx.restore();
+        
+        // Draw speech bubble
+        this.drawSpeechBubble();
+    }
+    
+    drawSpeechBubble() {
+        ctx.save();
+        
+        const bubbleX = this.x;
+        const bubbleY = this.y - 70;
+        const padding = 8;
+        const textWidth = this.speechText.length * 9;
+        const bubbleWidth = textWidth + padding * 2;
+        const bubbleHeight = 24;
+        
+        // Bubble background
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.fillRect(bubbleX - bubbleWidth / 2, bubbleY - bubbleHeight, bubbleWidth, bubbleHeight);
+        
+        // Bubble border
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bubbleX - bubbleWidth / 2, bubbleY - bubbleHeight, bubbleWidth, bubbleHeight);
+        
+        // Bubble tail
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.beginPath();
+        ctx.moveTo(bubbleX - 6, bubbleY);
+        ctx.lineTo(bubbleX, bubbleY + 8);
+        ctx.lineTo(bubbleX + 6, bubbleY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        
+        // Text
+        ctx.fillStyle = '#000';
+        ctx.font = 'bold 14px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(this.speechText, bubbleX, bubbleY - 8);
+        
+        ctx.restore();
     }
 
     isOffScreen() {
@@ -544,9 +803,40 @@ const player = new Player();
 const enemies = [];
 const particles = [];
 const projectiles = [];
+const enemyProjectiles = [];
+const textEffects = [];
 let score = 0;
 let gameOver = false;
 let enemySpawnTimer = 0;
+
+class TextEffect {
+    constructor(x, y, text, color = '#fff') {
+        this.x = x;
+        this.y = y;
+        this.text = text;
+        this.color = color;
+        this.life = 45;
+        this.velocityY = -2;
+        this.opacity = 1;
+    }
+
+    update() {
+        this.y += this.velocityY;
+        this.velocityY += 0.08;
+        this.life--;
+        this.opacity = this.life / 45;
+    }
+
+    draw() {
+        ctx.save();
+        ctx.globalAlpha = this.opacity;
+        ctx.fillStyle = this.color;
+        ctx.font = 'bold 20px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(this.text, this.x, this.y);
+        ctx.restore();
+    }
+}
 
 class Particle {
     constructor(x, y, color, vx, vy) {
@@ -612,6 +902,51 @@ class Projectile {
         if (this.frame % 3 === 0) {
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(this.x + Math.random() * 8 - 4, this.y + Math.random() * 8 - 4, 2, 2);
+        }
+        
+        ctx.restore();
+    }
+
+    isOffScreen() {
+        return this.x < -50 || this.x > canvas.width + 50;
+    }
+}
+
+class EnemyProjectile {
+    constructor(x, y, direction) {
+        this.x = x;
+        this.y = y;
+        this.width = 20;
+        this.height = 20;
+        this.speed = 6;
+        this.direction = direction;
+        this.rotation = 0;
+    }
+
+    update() {
+        this.x += this.speed * this.direction;
+        this.rotation += 0.3; // Spinning effect
+    }
+
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rotation);
+        
+        // Draw spinning blade/shuriken
+        ctx.fillStyle = '#ff4444';
+        // Center
+        ctx.fillRect(-3, -3, 6, 6);
+        
+        // Four blades
+        for (let i = 0; i < 4; i++) {
+            ctx.save();
+            ctx.rotate((Math.PI / 2) * i);
+            ctx.fillStyle = '#cc0000';
+            ctx.fillRect(-2, -10, 4, 8);
+            ctx.fillStyle = '#ff6666';
+            ctx.fillRect(-1, -10, 2, 7);
+            ctx.restore();
         }
         
         ctx.restore();
@@ -688,6 +1023,13 @@ function gameLoop() {
                 enemy.y > attackBox.y && enemy.y < attackBox.y + attackBox.height) {
                 enemy.takeDamage(player.attackType === 'special' ? 30 : 20);
                 createHitEffect(enemy.x, enemy.y - 20);
+                
+                // Add text effect based on attack type
+                if (player.attackType === 'punch') {
+                    textEffects.push(new TextEffect(enemy.x, enemy.y - 40, 'reject!', '#ffa500'));
+                } else if (player.attackType === 'kick') {
+                    textEffects.push(new TextEffect(enemy.x, enemy.y - 40, 'squash!', '#ff69b4'));
+                }
             }
         }
 
@@ -723,6 +1065,22 @@ function gameLoop() {
         }
     }
 
+    // Update enemy projectiles
+    for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
+        const projectile = enemyProjectiles[i];
+        projectile.update();
+
+        // Check collision with player
+        if (Math.abs(projectile.x - player.x) < 20 &&
+            Math.abs(projectile.y - player.y + 20) < 30) {
+            player.takeDamage(15);
+            createHitEffect(player.x, player.y - 20);
+            enemyProjectiles.splice(i, 1);
+        } else if (projectile.isOffScreen()) {
+            enemyProjectiles.splice(i, 1);
+        }
+    }
+
     for (let i = particles.length - 1; i >= 0; i--) {
         const particle = particles[i];
         particle.update();
@@ -731,10 +1089,21 @@ function gameLoop() {
         }
     }
 
+    // Update text effects
+    for (let i = textEffects.length - 1; i >= 0; i--) {
+        const effect = textEffects[i];
+        effect.update();
+        if (effect.life <= 0) {
+            textEffects.splice(i, 1);
+        }
+    }
+
     player.draw();
     enemies.forEach(enemy => enemy.draw());
     projectiles.forEach(projectile => projectile.draw());
+    enemyProjectiles.forEach(projectile => projectile.draw());
     particles.forEach(particle => particle.draw());
+    textEffects.forEach(effect => effect.draw());
 
     if (player.health <= 0) {
         gameOver = true;
@@ -767,6 +1136,7 @@ window.addEventListener('keyup', (e) => {
 const touchButtons = {
     left: document.getElementById('leftBtn'),
     right: document.getElementById('rightBtn'),
+    jump: document.getElementById('jumpBtn'),
     punch: document.getElementById('punchBtn'),
     kick: document.getElementById('kickBtn'),
     special: document.getElementById('specialBtn')
@@ -792,6 +1162,18 @@ if (touchButtons.right) {
     touchButtons.right.addEventListener('touchend', (e) => {
         e.preventDefault();
         keys.ArrowRight = false;
+    });
+}
+
+// Jump touch control
+if (touchButtons.jump) {
+    touchButtons.jump.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        keys.ArrowUp = true;
+    });
+    touchButtons.jump.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        keys.ArrowUp = false;
     });
 }
 
@@ -832,12 +1214,17 @@ document.addEventListener('touchmove', (e) => {
 function resizeCanvas() {
     const container = document.getElementById('gameContainer');
     const maxWidth = window.innerWidth;
-    const maxHeight = window.innerHeight - 140; // Leave space for touch controls
+    const maxHeight = window.innerHeight - 200; // More space for touch controls and UI
     
     if (window.innerWidth <= 768) {
         const scale = Math.min(maxWidth / 800, maxHeight / 400);
         canvas.style.width = (800 * scale) + 'px';
         canvas.style.height = (400 * scale) + 'px';
+        container.style.marginTop = '60px'; // Space for health bar
+    } else {
+        canvas.style.width = '800px';
+        canvas.style.height = '400px';
+        container.style.marginTop = '0';
     }
 }
 
